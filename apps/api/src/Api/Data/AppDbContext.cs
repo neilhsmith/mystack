@@ -10,12 +10,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Post>(entity =>
-        {
-            entity.HasKey(p => p.Id);
-            entity.Property(p => p.Title).IsRequired().HasMaxLength(Post.Constraints.MaxTitleLength);
-            entity.Property(p => p.Content).IsRequired().HasMaxLength(Post.Constraints.MaxContentLength);
-        });
+        // Per-entity config lives in each feature folder as `IEntityTypeConfiguration<T>`
+        // (e.g. PostConfiguration). Discovered here so the data layer doesn't need to
+        // import every feature's namespace.
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
 
         // Convention: every ITimestamped entity gets `now()` column defaults so non-EF
         // writers can't leave CreatedAt/UpdatedAt unset. The per-table UPDATE trigger
