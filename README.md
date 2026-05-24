@@ -15,14 +15,14 @@ cd infra; docker compose up -d; cd ..
 # 2. Run the API. Applies EF migrations on startup in Development.
 dotnet run --project apps/api/src/Api
 
-# Endpoints:
-#   GET    http://localhost:5084/hello
+# Endpoints (API surface is versioned under /v1; health checks stay unversioned):
+#   GET    http://localhost:5084/v1/hello
 #   GET    http://localhost:5084/health (live | ready | aggregate)
-#   GET    http://localhost:5084/posts
-#   GET    http://localhost:5084/posts/{id}
-#   POST   http://localhost:5084/posts
-#   PUT    http://localhost:5084/posts/{id}
-#   DELETE http://localhost:5084/posts/{id}
+#   GET    http://localhost:5084/v1/posts
+#   GET    http://localhost:5084/v1/posts/{id}
+#   POST   http://localhost:5084/v1/posts
+#   PUT    http://localhost:5084/v1/posts/{id}
+#   DELETE http://localhost:5084/v1/posts/{id}
 ```
 
 To bring up the **full stack inside Docker** (API container + Postgres), use the `full` compose profile:

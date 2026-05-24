@@ -56,9 +56,16 @@ if (app.Environment.IsDevelopment())
 // codegen and integration tests can rely on it; gate per-environment if that ever changes.
 app.MapOpenApi();
 
-app.MapGet("/hello", () => new { message = "hello from mystack" });
+// Versioned API surface. New resources hang off this group; bumping the API contract
+// in a breaking way means creating a sibling `v2` group, not mutating `v1`.
+// Health endpoints intentionally stay off the version prefix — k8s/load balancer probes
+// shouldn't care about API contract version. Same for /openapi/v1.json, where the `v1`
+// is the OpenAPI document version, not the API version (they happen to align today).
+var v1 = app.MapGroup("/v1");
 
-app.MapPostsEndpoints();
+v1.MapGet("/hello", () => new { message = "hello from mystack" });
+
+v1.MapPostsEndpoints();
 
 // Aggregate — runs every registered check.
 app.MapHealthChecks("/health");

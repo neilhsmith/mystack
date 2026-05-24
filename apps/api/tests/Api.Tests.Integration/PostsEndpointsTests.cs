@@ -36,12 +36,12 @@ public class PostsEndpointsTests : IAsyncLifetime
 
     public ValueTask DisposeAsync() => default;
 
-    // ---------- GET /posts ----------
+    // ---------- GET /v1/posts ----------
 
     [Fact]
     public async Task Get_All_Posts_ReturnsEmpty_WhenNoPosts()
     {
-        var response = await _client.GetAsync("/posts", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync("/v1/posts", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<List<PostResponse>>(TestContext.Current.CancellationToken);
@@ -58,7 +58,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         await Task.Delay(10, TestContext.Current.CancellationToken);
         var third = await CreatePost("Third", "3");
 
-        var response = await _client.GetAsync("/posts", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync("/v1/posts", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<List<PostResponse>>(TestContext.Current.CancellationToken);
@@ -77,7 +77,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
         await SendDelete(doomed.Id, doomedEtag);
 
-        var listResponse = await _client.GetAsync("/posts", TestContext.Current.CancellationToken);
+        var listResponse = await _client.GetAsync("/v1/posts", TestContext.Current.CancellationToken);
         var posts = await listResponse.Content.ReadFromJsonAsync<List<PostResponse>>(
             TestContext.Current.CancellationToken);
 
@@ -86,14 +86,14 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal(keeper.Id, posts[0].Id);
     }
 
-    // ---------- GET /posts/{id} ----------
+    // ---------- GET /v1/posts/{id} ----------
 
     [Fact]
     public async Task GetById_ReturnsCreatedPost()
     {
         var created = await CreatePost("Lookup test", "Body");
 
-        var response = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<PostResponse>(TestContext.Current.CancellationToken);
@@ -105,7 +105,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task GetById_Returns404_WhenNotFound()
     {
-        var response = await _client.GetAsync($"/posts/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync($"/v1/posts/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -116,7 +116,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var (created, postEtag) = await CreatePostWithETag("Tagged", "body");
 
         var response = await _client.GetAsync(
-            $"/posts/{created.Id}", TestContext.Current.CancellationToken);
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(response.Headers.ETag);
@@ -129,7 +129,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var (created, etag) = await CreatePostWithETag("Cached", "body");
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/posts/{created.Id}");
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/posts/{created.Id}");
         request.Headers.TryAddWithoutValidation("If-None-Match", etag);
 
         var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -144,7 +144,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var (created, _) = await CreatePostWithETag("Modified", "body");
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/posts/{created.Id}");
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/posts/{created.Id}");
         request.Headers.TryAddWithoutValidation("If-None-Match", "\"0000000000000000\"");
 
         var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -157,14 +157,14 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal(created.Id, body.Id);
     }
 
-    // ---------- POST /posts ----------
+    // ---------- POST /v1/posts ----------
 
     [Fact]
     public async Task Post_CreatesAndReturnsCreatedPost()
     {
         var request = new CreatePostRequest("First post", "Hello world.");
 
-        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<PostResponse>(TestContext.Current.CancellationToken);
@@ -172,7 +172,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.NotEqual(Guid.Empty, body.Id);
         Assert.Equal("First post", body.Title);
         Assert.Equal("Hello world.", body.Content);
-        Assert.Equal($"/posts/{body.Id}", response.Headers.Location?.OriginalString);
+        Assert.Equal($"/v1/posts/{body.Id}", response.Headers.Location?.OriginalString);
         Assert.NotNull(response.Headers.ETag);
     }
 
@@ -180,7 +180,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     public async Task Post_ReturnsStrongQuotedETag()
     {
         var response = await _client.PostAsJsonAsync(
-            "/posts",
+            "/v1/posts",
             new CreatePostRequest("Tagged", "body"),
             TestContext.Current.CancellationToken);
 
@@ -196,7 +196,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var request = new CreatePostRequest("", "content");
 
-        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(response, nameof(CreatePostRequest.Title), "Title is required.");
         await AssertNoPostsExist();
@@ -207,7 +207,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var request = new CreatePostRequest("title", "   ");
 
-        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(response, nameof(CreatePostRequest.Content), "Content is required.");
         await AssertNoPostsExist();
@@ -218,7 +218,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var request = new CreatePostRequest(new string('x', Post.Constraints.MaxTitleLength + 1), "content");
 
-        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(
             response,
@@ -232,7 +232,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         var request = new CreatePostRequest("title", new string('x', Post.Constraints.MaxContentLength + 1));
 
-        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(
             response,
@@ -241,7 +241,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         await AssertNoPostsExist();
     }
 
-    // ---------- PUT /posts/{id} ----------
+    // ---------- PUT /v1/posts/{id} ----------
 
     [Fact]
     public async Task Put_UpdatesPost()
@@ -272,7 +272,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.NotEqual(originalEtag, newEtag);
 
         // A subsequent GET returns the same new ETag.
-        var get = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(newEtag, get.Headers.ETag?.ToString());
     }
 
@@ -297,7 +297,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         await AssertValidationProblem(response, nameof(UpdatePostRequest.Title), "Title is required.");
 
         var current = await _client.GetFromJsonAsync<PostResponse>(
-            $"/posts/{created.Id}",
+            $"/v1/posts/{created.Id}",
             TestContext.Current.CancellationToken);
         Assert.NotNull(current);
         Assert.Equal("Original", current.Title);
@@ -312,7 +312,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         // filter runs first, so even without an If-Match header we get 400 not 428.
         var (created, _) = await CreatePostWithETag("Original", "body");
 
-        var request = new HttpRequestMessage(HttpMethod.Put, $"/posts/{created.Id}")
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/v1/posts/{created.Id}")
         {
             Content = JsonContent.Create(new UpdatePostRequest("", "")),
         };
@@ -328,7 +328,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var (created, _) = await CreatePostWithETag("Original", "body");
 
         var response = await _client.PutAsJsonAsync(
-            $"/posts/{created.Id}",
+            $"/v1/posts/{created.Id}",
             new UpdatePostRequest("New", "new body"),
             TestContext.Current.CancellationToken);
 
@@ -354,7 +354,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
         // Body wasn't mutated by the failed PUT.
         var current = await _client.GetFromJsonAsync<PostResponse>(
-            $"/posts/{created.Id}", TestContext.Current.CancellationToken);
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.NotNull(current);
         Assert.Equal("First", current.Title);
     }
@@ -373,7 +373,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal("Wildcarded", body.Title);
     }
 
-    // ---------- DELETE /posts/{id} ----------
+    // ---------- DELETE /v1/posts/{id} ----------
 
     [Fact]
     public async Task Delete_RemovesPost()
@@ -383,7 +383,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var deleteResponse = await SendDelete(created.Id, etag);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
-        var getResponse = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var getResponse = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
     }
 
@@ -436,11 +436,11 @@ public class PostsEndpointsTests : IAsyncLifetime
         var (created, _) = await CreatePostWithETag("Persistent", "body");
 
         var response = await _client.DeleteAsync(
-            $"/posts/{created.Id}", TestContext.Current.CancellationToken);
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
 
         Assert.Equal(StatusCodes.Status428PreconditionRequired, (int)response.StatusCode);
 
-        var get = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, get.StatusCode);
     }
 
@@ -455,7 +455,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var stale = await SendDelete(created.Id, originalEtag);
         Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
 
-        var get = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, get.StatusCode);
     }
 
@@ -467,7 +467,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var response = await SendDelete(created.Id, ifMatch: "*");
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        var get = await _client.GetAsync($"/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
     }
 
@@ -479,7 +479,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     private async Task<(PostResponse post, string etag)> CreatePostWithETag(string title, string content)
     {
         var response = await _client.PostAsJsonAsync(
-            "/posts",
+            "/v1/posts",
             new CreatePostRequest(title, content),
             TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
@@ -491,7 +491,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
     private async Task<HttpResponseMessage> SendPut(Guid id, UpdatePostRequest payload, string ifMatch)
     {
-        var request = new HttpRequestMessage(HttpMethod.Put, $"/posts/{id}")
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/v1/posts/{id}")
         {
             Content = JsonContent.Create(payload),
         };
@@ -501,7 +501,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
     private async Task<HttpResponseMessage> SendDelete(Guid id, string ifMatch)
     {
-        var request = new HttpRequestMessage(HttpMethod.Delete, $"/posts/{id}");
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/v1/posts/{id}");
         request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
         return await _client.SendAsync(request, TestContext.Current.CancellationToken);
     }
@@ -509,7 +509,7 @@ public class PostsEndpointsTests : IAsyncLifetime
     private async Task AssertNoPostsExist()
     {
         var posts = await _client.GetFromJsonAsync<List<PostResponse>>(
-            "/posts",
+            "/v1/posts",
             TestContext.Current.CancellationToken);
         Assert.NotNull(posts);
         Assert.Empty(posts);
