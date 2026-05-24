@@ -57,7 +57,7 @@ public static class PostsEndpoints
 
             post.Title = request.Title;
             post.Content = request.Content;
-            post.UpdatedAt = DateTimeOffset.UtcNow;
+            post.UpdatedAt = Post.MicrosecondUtcNow();
             await db.SaveChangesAsync(ct);
 
             return Results.Ok(post.ToResponse());
