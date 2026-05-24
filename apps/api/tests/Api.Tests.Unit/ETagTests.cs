@@ -1,5 +1,5 @@
-using Api.Data;
 using Api.Features.Posts;
+using Api.Http;
 
 namespace Api.Tests.Unit;
 

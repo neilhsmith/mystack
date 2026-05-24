@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
-namespace Api.Data;
+namespace Api.Http;
 
 /// <summary>
 /// Stamps RFC 7232 conditional-request metadata onto an endpoint so the OpenAPI spec

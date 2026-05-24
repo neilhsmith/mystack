@@ -26,13 +26,20 @@ apps/api/
 │   ├── Properties/launchSettings.json    # local debug ports (5084 / 7199)
 │   ├── Features/                         # one folder per feature (Posts/, …)
 │   │   └── Posts/                        # Post entity, DTOs, MapPostsEndpoints
-│   └── Data/                             # cross-cutting data layer
-│       ├── AppDbContext.cs
-│       ├── DesignTimeDbContextFactory.cs
-│       ├── ITimestamped.cs               # marker: opts entity into auto CreatedAt/UpdatedAt
-│       ├── ISoftDeletable.cs             # marker: opts entity into soft delete (DeletedAt)
-│       ├── AuditInterceptor.cs           # SaveChanges hook: timestamps + soft-delete intercept
-│       └── Migrations/                   # EF Core generated
+│   ├── Data/                             # cross-cutting data layer
+│   │   ├── AppDbContext.cs
+│   │   ├── DesignTimeDbContextFactory.cs
+│   │   ├── ITimestamped.cs               # marker: opts entity into auto CreatedAt/UpdatedAt
+│   │   ├── ISoftDeletable.cs             # marker: opts entity into soft delete (DeletedAt)
+│   │   ├── AuditInterceptor.cs           # SaveChanges hook: timestamps + soft-delete intercept
+│   │   └── Migrations/                   # EF Core generated
+│   ├── Http/                             # cross-cutting HTTP layer
+│   │   ├── ETag.cs                       # strong RFC 7232 tag from ITimestamped.UpdatedAt
+│   │   ├── ConditionalRequest.cs         # If-None-Match → 304; If-Match → 412/428
+│   │   └── ConditionalRequestOpenApi.cs  # .WithConditionalRead/Write/EtagResponseHeader markers + transformer
+│   └── Validation/                       # cross-cutting validation layer
+│       ├── ValidationEndpointFilter.cs   # runs IValidator<T>, short-circuits with problem+json
+│       └── FluentValidationSchemaTransformer.cs  # reflects validator rules into the OpenAPI schema
 └── tests/
     ├── Api.Tests.Unit/                   # pure in-process tests
     └── Api.Tests.Integration/            # WebApplicationFactory<Program>-based
@@ -47,7 +54,7 @@ apps/api/
 - **Soft delete:** implement `ISoftDeletable` from `Api.Data` to get a `DeletedAt` (nullable `DateTimeOffset`) column the `AuditInterceptor` populates whenever you call `db.<Entity>.Remove(...)`. The row is never hard-deleted by EF — a `DELETE` becomes an `UPDATE` setting `DeletedAt = now()`. A global query filter (applied automatically in `AppDbContext.OnModelCreating`) hides soft-deleted rows from every query; use `.IgnoreQueryFilters()` to opt out for admin/audit views. Add a convenience `public bool IsDeleted => DeletedAt is not null;` on the entity. Hard delete is still possible via raw SQL when truly needed (GDPR erasure, maintenance).
 - **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
 - **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
-- **ETags & conditional requests:** any endpoint that returns or mutates a single `ITimestamped` resource should surface an ETag and honour RFC 7232 preconditions via [`ETag.From(...)`](../../../apps/api/src/Api/Data/ETag.cs) and [`ConditionalRequest`](../../../apps/api/src/Api/Data/ConditionalRequest.cs). See the section below.
+- **ETags & conditional requests:** any endpoint that returns or mutates a single `ITimestamped` resource should surface an ETag and honour RFC 7232 preconditions via [`ETag.From(...)`](../../../apps/api/src/Api/Http/ETag.cs) and [`ConditionalRequest`](../../../apps/api/src/Api/Http/ConditionalRequest.cs). See the section below.
 - **Field constraints:** define max lengths, regex patterns, and any other field-level constraints as `public const` (or `public static readonly`) fields on a **nested `public static class Constraints`** on the entity. Reference them from EF fluent config, the FluentValidation validators, and any other layer that needs to know. One change, three layers (DB schema, runtime validation, OpenAPI spec). [`Post.Constraints`](../../../apps/api/src/Api/Features/Posts/Post.cs) is the worked example — callers read e.g. `Post.Constraints.MaxTitleLength`. The nesting is the convention: do NOT inline these constants directly on the entity, and do NOT split them into a sibling class — that breaks the "one place to look per entity" rule.
 - **Request DTO validation:** one FluentValidation `AbstractValidator<T>` per request DTO, lives flat in the feature folder (e.g. [`CreatePostRequestValidator`](../../../apps/api/src/Api/Features/Posts/CreatePostRequestValidator.cs)). Set `RuleLevelCascadeMode = CascadeMode.Stop` so each property reports one failure at a time. Validators are auto-discovered by `AddValidatorsFromAssemblyContaining<Program>()` in `Program.cs`. Apply per-endpoint with `.AddEndpointFilter<ValidationEndpointFilter<TRequest>>()` — see [`PostsEndpoints`](../../../apps/api/src/Api/Features/Posts/PostsEndpoints.cs) for the wiring. Failure → 400 with RFC 9457 `application/problem+json` (built by `Results.ValidationProblem`). The filter short-circuits **before** any handler logic, including 404/ETag checks.
 - **DTO ↔ entity mapping:** one `[Mapper] partial class <Feature>Mapper` per feature folder (e.g. [`PostMapper`](../../../apps/api/src/Api/Features/Posts/PostMapper.cs)) using Mapperly. Source-generated — the mapping code is plain C# you can step through, no runtime reflection. Register as a singleton in `Program.cs`. Use `RequiredMappingStrategy.Target` on the `[Mapper]` attribute and `[MapperIgnoreTarget(nameof(Post.Id))]` etc. to silence warnings for framework-managed fields (Id, CreatedAt, UpdatedAt, DeletedAt) that the mapper must not touch.
@@ -113,7 +120,7 @@ if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditio
 ConditionalRequest.SetETagHeader(http, ETag.From(entity));
 ```
 
-**Always pair the runtime helper with the OpenAPI marker** so the published contract matches what the runtime does. Three extensions in [`ConditionalRequestOpenApi`](../../../apps/api/src/Api/Data/ConditionalRequestOpenApi.cs):
+**Always pair the runtime helper with the OpenAPI marker** so the published contract matches what the runtime does. Three extensions in [`ConditionalRequestOpenApi`](../../../apps/api/src/Api/Http/ConditionalRequestOpenApi.cs):
 
 ```csharp
 group.MapGet("/{id:guid}",   GetById).Produces(304).WithConditionalRead();

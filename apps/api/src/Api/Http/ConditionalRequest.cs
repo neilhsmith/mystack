@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Net.Http.Headers;
 
-namespace Api.Data;
+namespace Api.Http;
 
 /// <summary>
 /// RFC 7232 precondition handling for endpoints that surface an ETag.
