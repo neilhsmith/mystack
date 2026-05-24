@@ -12,7 +12,7 @@ public class HelloEndpointTests(ApiTestFactory factory)
     [Fact]
     public async Task Get_Hello_ReturnsExpectedMessage()
     {
-        var response = await _client.GetAsync("/hello", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync("/v1/hello", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

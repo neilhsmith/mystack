@@ -62,7 +62,7 @@ public class OpenApiSpecTests
     [Fact]
     public async Task GetById_Advertises_ETag_Response_Header_And_IfNoneMatch_Parameter()
     {
-        var op = await GetOperation("/posts/{id}", "get");
+        var op = await GetOperation("/v1/posts/{id}", "get");
 
         AssertResponseHeader(op, "200", "ETag");
         AssertResponseHeader(op, "304", "ETag");
@@ -72,7 +72,7 @@ public class OpenApiSpecTests
     [Fact]
     public async Task Post_Advertises_ETag_Response_Header()
     {
-        var op = await GetOperation("/posts", "post");
+        var op = await GetOperation("/v1/posts", "post");
 
         AssertResponseHeader(op, "201", "ETag");
     }
@@ -80,7 +80,7 @@ public class OpenApiSpecTests
     [Fact]
     public async Task Put_Advertises_ETag_And_Requires_IfMatch()
     {
-        var op = await GetOperation("/posts/{id}", "put");
+        var op = await GetOperation("/v1/posts/{id}", "put");
 
         AssertResponseHeader(op, "200", "ETag");
         AssertResponseHeader(op, "412", "ETag");
@@ -90,7 +90,7 @@ public class OpenApiSpecTests
     [Fact]
     public async Task Delete_Requires_IfMatch_And_Exposes_Current_ETag_On_412()
     {
-        var op = await GetOperation("/posts/{id}", "delete");
+        var op = await GetOperation("/v1/posts/{id}", "delete");
 
         AssertResponseHeader(op, "412", "ETag");
         AssertHeaderParameter(op, "If-Match", required: true);
@@ -101,7 +101,7 @@ public class OpenApiSpecTests
     {
         // Sanity check: DELETE's success response is 204 No Content, and the handler
         // never sets an ETag on it. The spec must not lie about that.
-        var op = await GetOperation("/posts/{id}", "delete");
+        var op = await GetOperation("/v1/posts/{id}", "delete");
 
         AssertNoResponseHeader(op, "204", "ETag");
     }

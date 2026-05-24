@@ -81,7 +81,10 @@ public static class PostsEndpoints
         await db.SaveChangesAsync(ct);
 
         ConditionalRequest.SetETagHeader(http, ETag.From(db, post));
-        return TypedResults.Created($"/posts/{post.Id}", mapper.ToResponse(post));
+        // The "/v1" prefix is owned by Program.cs's MapGroup("/v1"). Mirrored here in the
+        // Location header — keep this hardcoded for now; revisit (LinkGenerator, route names,
+        // or a per-feature RoutePrefix const) when a second versioned resource shows up.
+        return TypedResults.Created($"/v1/posts/{post.Id}", mapper.ToResponse(post));
     }
 
     private static async Task<Results<Ok<PostResponse>, NotFound, ProblemHttpResult>> Update(
