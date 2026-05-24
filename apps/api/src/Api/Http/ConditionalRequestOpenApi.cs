@@ -5,15 +5,16 @@ using Microsoft.OpenApi;
 namespace Api.Http;
 
 /// <summary>
-/// Stamps RFC 7232 conditional-request metadata onto an endpoint so the OpenAPI spec
-/// advertises the <c>ETag</c> response header and the <c>If-Match</c> / <c>If-None-Match</c>
-/// request parameters. The actual runtime behaviour lives in <see cref="ConditionalRequest"/>;
-/// these extensions exist purely to keep the published contract honest so generated
-/// clients (e.g. a future TS client) see the conditional-request surface area without
-/// hand-written client patches.
-/// <para>
-/// Pick the variant that matches the endpoint:
-/// </para>
+/// Stamps RFC 7232 conditional-request metadata onto an endpoint. Two effects per call:
+/// <list type="bullet">
+///   <item>OpenAPI spec — the operation transformer reads the marker and adds the
+///   <c>ETag</c> response header and <c>If-Match</c> / <c>If-None-Match</c> request
+///   parameters to the published contract.</item>
+///   <item>Runtime — <see cref="ConditionalRequestETagAssertionFilter"/> runs after the
+///   handler and throws if the response status promises an ETag (per the OpenAPI spec)
+///   but the handler forgot to set it. Spec and runtime can't drift silently.</item>
+/// </list>
+/// <para>Pick the variant that matches the endpoint:</para>
 /// <list type="bullet">
 ///   <item><see cref="WithEtagResponseHeader"/> — emits <c>ETag</c> on success responses
 ///   but does not itself honour request preconditions. POST that creates a resource.</item>
@@ -26,16 +27,27 @@ namespace Api.Http;
 public static class ConditionalRequestOpenApiExtensions
 {
     public static RouteHandlerBuilder WithEtagResponseHeader(this RouteHandlerBuilder builder) =>
-        builder.WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.EtagResponse));
+        builder
+            .WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.EtagResponse))
+            .AddEndpointFilter<ConditionalRequestETagAssertionFilter>();
 
     public static RouteHandlerBuilder WithConditionalRead(this RouteHandlerBuilder builder) =>
-        builder.WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.Read));
+        builder
+            .WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.Read))
+            .AddEndpointFilter<ConditionalRequestETagAssertionFilter>();
 
     public static RouteHandlerBuilder WithConditionalWrite(this RouteHandlerBuilder builder) =>
-        builder.WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.Write));
+        builder
+            .WithMetadata(new ConditionalRequestMarker(ConditionalRequestKind.Write))
+            .AddEndpointFilter<ConditionalRequestETagAssertionFilter>();
 }
 
-internal enum ConditionalRequestKind
+/// <summary>
+/// Which conditional-request shape an endpoint advertises. Surfaces publicly because
+/// it appears in test signatures and exception messages; the marker record that wraps
+/// it stays internal.
+/// </summary>
+public enum ConditionalRequestKind
 {
     EtagResponse,
     Read,
