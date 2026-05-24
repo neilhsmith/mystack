@@ -46,6 +46,33 @@ apps/api/
 - **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
 - **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
 
+### Adding a new entity — checklist
+
+When you create a new DB-backed entity, walk this list:
+
+- [ ] **Entity** in `src/Api/Features/<Feature>/<Entity>.cs`. Implements `IHasTimestamps` (if it should track timestamps). `Id` is `Guid` with `Guid.CreateVersion7()` default. Do not initialize `CreatedAt` / `UpdatedAt`.
+- [ ] **DbSet** added to `AppDbContext`: `public DbSet<MyEntity> MyEntities => Set<MyEntity>();`.
+- [ ] **OnModelCreating** in `AppDbContext`: configure keys, max lengths, unique indexes, FKs. Column defaults for `IHasTimestamps` timestamps are applied automatically by the convention loop — don't repeat them.
+- [ ] **Generate the migration**: `dotnet ef migrations add Add<Entity> --project apps/api/src/Api --output-dir Data/Migrations`.
+- [ ] **Hand-add the UPDATE trigger to the migration's `Up()`** if the entity implements `IHasTimestamps`. The trigger function `set_timestamps_on_update()` already exists from `InitialCreate`; new tables just need their own `CREATE TRIGGER`:
+
+  ```csharp
+  migrationBuilder.Sql(@"
+      CREATE TRIGGER <tablename>_set_timestamps_on_update
+      BEFORE UPDATE ON ""<TableName>""
+      FOR EACH ROW EXECUTE FUNCTION set_timestamps_on_update();
+  ");
+  ```
+
+  And the matching drop in `Down()`:
+  ```csharp
+  migrationBuilder.Sql(@"DROP TRIGGER IF EXISTS <tablename>_set_timestamps_on_update ON ""<TableName>"";");
+  ```
+
+  Why hand-add it? Triggers protect against non-EF writers (Hangfire jobs, serverless functions, raw SQL maintenance) leaving `UpdatedAt` stale or accidentally mutating `CreatedAt`. EF Core doesn't auto-generate trigger SQL, so the agent adding the entity owns it. Skipping it isn't a build failure — it's a future-confusing-bug.
+
+- [ ] **Tests** in `Api.Tests.Integration/` exercising the endpoints + (if the entity is timestamp-managed and accessible by non-EF writers in the future) a quick safety-net test against raw SQL — see [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) for the pattern.
+
 `Program` is a `public partial class` solely so `WebApplicationFactory<Program>` can reach it from the integration test project. **Do not delete that declaration** at the bottom of `Program.cs`.
 
 ### Running the API locally
