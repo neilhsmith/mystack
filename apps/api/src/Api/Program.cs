@@ -31,6 +31,19 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 // Mapperly-generated mappers are stateless — register one instance per feature folder.
 builder.Services.AddSingleton<PostMapper>();
 
+// RFC 7807 / 9457 problem+json for ALL error responses — wired in so unhandled
+// exceptions (via UseExceptionHandler below) and bare 4xx/5xx status results (via
+// UseStatusCodePages below) come back in the same shape as our 400 / 412 / 428 responses.
+// The customizer attaches `traceId` to every problem response so a client report can be
+// matched against server logs without the user copying anything else.
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = ctx =>
+    {
+        ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier;
+    };
+});
+
 // OpenAPI: native ASP.NET 10 generator. The schema transformer reflects FluentValidation
 // rules into the spec so the published contract advertises the same constraints the
 // runtime enforces (see FluentValidationSchemaTransformer for the mapping).
@@ -52,6 +65,16 @@ if (app.Environment.IsDevelopment())
     await db.Database.MigrateAsync();
 }
 
+// Error handling — registered before any endpoint mapping so it wraps every handler.
+// UseExceptionHandler: catches unhandled exceptions, hands them to ProblemDetailsService,
+// emits application/problem+json with the configured customizer (traceId etc.). No stack
+// trace ever leaks — same shape in Development and Production.
+app.UseExceptionHandler();
+// UseStatusCodePages: catches 4xx / 5xx responses that have no body (e.g. a bare
+// Results.StatusCode(503)) and wraps them in problem+json too. Won't disturb handlers
+// that already wrote a body (validation 400s, our 412 / 428 ProblemHttpResults, …).
+app.UseStatusCodePages();
+
 // /openapi/v1.json — machine-readable spec. Available in all environments so client
 // codegen and integration tests can rely on it; gate per-environment if that ever changes.
 app.MapOpenApi();
@@ -66,6 +89,14 @@ var v1 = app.MapGroup("/v1");
 v1.MapGet("/hello", () => new { message = "hello from mystack" });
 
 v1.MapPostsEndpoints();
+
+// Dev-only probe so integration tests (and humans curling locally) can verify the
+// exception → problem+json pipeline end-to-end. Never registered in Production.
+if (app.Environment.IsDevelopment())
+{
+    v1.MapGet("/diagnostics/throw", static IResult () =>
+        throw new InvalidOperationException("Deliberate exception for problem-details probe."));
+}
 
 // Aggregate — runs every registered check.
 app.MapHealthChecks("/health");
