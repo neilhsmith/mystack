@@ -198,7 +198,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertValidationProblem(response, nameof(CreatePostRequest.Title), "Title is required.");
         await AssertNoPostsExist();
     }
 
@@ -209,18 +209,35 @@ public class PostsEndpointsTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertValidationProblem(response, nameof(CreatePostRequest.Content), "Content is required.");
         await AssertNoPostsExist();
     }
 
     [Fact]
     public async Task Post_Returns400_WhenTitleTooLong()
     {
-        var request = new CreatePostRequest(new string('x', 201), "content");
+        var request = new CreatePostRequest(new string('x', Post.Constraints.MaxTitleLength + 1), "content");
 
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertValidationProblem(
+            response,
+            nameof(CreatePostRequest.Title),
+            $"Title must be {Post.Constraints.MaxTitleLength} characters or fewer.");
+        await AssertNoPostsExist();
+    }
+
+    [Fact]
+    public async Task Post_Returns400_WhenContentTooLong()
+    {
+        var request = new CreatePostRequest("title", new string('x', Post.Constraints.MaxContentLength + 1));
+
+        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+
+        await AssertValidationProblem(
+            response,
+            nameof(CreatePostRequest.Content),
+            $"Content must be {Post.Constraints.MaxContentLength} characters or fewer.");
         await AssertNoPostsExist();
     }
 
@@ -277,7 +294,7 @@ public class PostsEndpointsTests : IAsyncLifetime
 
         var response = await SendPut(created.Id, new UpdatePostRequest("", "body"), etag);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertValidationProblem(response, nameof(UpdatePostRequest.Title), "Title is required.");
 
         var current = await _client.GetFromJsonAsync<PostResponse>(
             $"/posts/{created.Id}",
@@ -286,6 +303,23 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal("Original", current.Title);
         Assert.Equal("Original body", current.Content);
         Assert.Equal(created.UpdatedAt, current.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task Put_ValidationFails_Before_IfMatch_IsChecked()
+    {
+        // A malformed body should burn no precondition check or DB write — the validation
+        // filter runs first, so even without an If-Match header we get 400 not 428.
+        var (created, _) = await CreatePostWithETag("Original", "body");
+
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/posts/{created.Id}")
+        {
+            Content = JsonContent.Create(new UpdatePostRequest("", "")),
+        };
+
+        var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -479,5 +513,26 @@ public class PostsEndpointsTests : IAsyncLifetime
             TestContext.Current.CancellationToken);
         Assert.NotNull(posts);
         Assert.Empty(posts);
+    }
+
+    /// <summary>
+    /// Asserts that <paramref name="response"/> is the RFC 9457 problem+json validation
+    /// response produced by <c>Results.ValidationProblem(...)</c> and that the named
+    /// property's first error matches <paramref name="expectedMessage"/>. The validator
+    /// is configured to stop at first failure per property, so the error array is length 1.
+    /// </summary>
+    private static async Task AssertValidationProblem(
+        HttpResponseMessage response, string propertyName, string expectedMessage)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(problem);
+        Assert.True(
+            problem.Errors.TryGetValue(propertyName, out var messages),
+            $"Expected validation error key '{propertyName}', got: {string.Join(", ", problem.Errors.Keys)}");
+        Assert.Contains(expectedMessage, messages!);
     }
 }

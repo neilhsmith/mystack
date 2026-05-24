@@ -13,8 +13,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Post>(entity =>
         {
             entity.HasKey(p => p.Id);
-            entity.Property(p => p.Title).IsRequired().HasMaxLength(200);
-            entity.Property(p => p.Content).IsRequired();
+            entity.Property(p => p.Title).IsRequired().HasMaxLength(Post.Constraints.MaxTitleLength);
+            entity.Property(p => p.Content).IsRequired().HasMaxLength(Post.Constraints.MaxContentLength);
         });
 
         // Convention: every ITimestamped entity gets `now()` column defaults so non-EF

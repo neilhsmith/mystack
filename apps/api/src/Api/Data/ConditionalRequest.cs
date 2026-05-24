@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Net.Http.Headers;
 
 namespace Api.Data;
@@ -15,6 +16,12 @@ namespace Api.Data;
 ///   412 if present but doesn't match). Returns null when the caller may proceed with the
 ///   write; sets the current <c>ETag</c> on the 412 response so the client can recover.</item>
 /// </list>
+/// <para>
+/// Return types are <see cref="StatusCodeHttpResult"/> / <see cref="ProblemHttpResult"/>
+/// rather than the untyped <see cref="IResult"/> so calling handlers can include them in
+/// their <c>Results&lt;...&gt;</c> return union — that's what lets the OpenAPI generator
+/// see the response shapes.
+/// </para>
 /// </summary>
 public static class ConditionalRequest
 {
@@ -24,7 +31,7 @@ public static class ConditionalRequest
     /// indicates the client already holds the current representation; otherwise <c>null</c>
     /// (caller serves the full body).
     /// </summary>
-    public static IResult? EvaluateRead(HttpContext context, EntityTagHeaderValue etag)
+    public static StatusCodeHttpResult? EvaluateRead(HttpContext context, EntityTagHeaderValue etag)
     {
         SetETagHeader(context, etag);
 
@@ -38,7 +45,7 @@ public static class ConditionalRequest
         {
             if (Matches(candidate, etag))
             {
-                return Results.StatusCode(StatusCodes.Status304NotModified);
+                return TypedResults.StatusCode(StatusCodes.Status304NotModified);
             }
         }
 
@@ -55,13 +62,13 @@ public static class ConditionalRequest
     ///   <item>Match → <c>null</c>; caller proceeds with the write.</item>
     /// </list>
     /// </summary>
-    public static IResult? EvaluateWrite(HttpContext context, EntityTagHeaderValue etag)
+    public static ProblemHttpResult? EvaluateWrite(HttpContext context, EntityTagHeaderValue etag)
     {
         var ifMatch = context.Request.GetTypedHeaders().IfMatch;
 
         if (ifMatch.Count == 0)
         {
-            return Results.Problem(
+            return TypedResults.Problem(
                 statusCode: StatusCodes.Status428PreconditionRequired,
                 title: "If-Match header is required for this operation.");
         }
@@ -75,7 +82,7 @@ public static class ConditionalRequest
         }
 
         SetETagHeader(context, etag);
-        return Results.Problem(
+        return TypedResults.Problem(
             statusCode: StatusCodes.Status412PreconditionFailed,
             title: "If-Match does not match the current resource ETag.");
     }

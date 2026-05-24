@@ -4,6 +4,12 @@ namespace Api.Features.Posts;
 
 public sealed class Post : ITimestamped, ISoftDeletable
 {
+    public static class Constraints
+    {
+        public const int MaxTitleLength = 200;
+        public const int MaxContentLength = 10_000;
+    }
+
     public Guid Id { get; init; } = Guid.CreateVersion7();
 
     public required string Title { get; set; }

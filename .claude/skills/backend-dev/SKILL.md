@@ -48,14 +48,21 @@ apps/api/
 - **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
 - **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
 - **ETags & conditional requests:** any endpoint that returns or mutates a single `ITimestamped` resource should surface an ETag and honour RFC 7232 preconditions via [`ETag.From(...)`](../../../apps/api/src/Api/Data/ETag.cs) and [`ConditionalRequest`](../../../apps/api/src/Api/Data/ConditionalRequest.cs). See the section below.
+- **Field constraints:** define max lengths, regex patterns, and any other field-level constraints as `public const` (or `public static readonly`) fields on a **nested `public static class Constraints`** on the entity. Reference them from EF fluent config, the FluentValidation validators, and any other layer that needs to know. One change, three layers (DB schema, runtime validation, OpenAPI spec). [`Post.Constraints`](../../../apps/api/src/Api/Features/Posts/Post.cs) is the worked example — callers read e.g. `Post.Constraints.MaxTitleLength`. The nesting is the convention: do NOT inline these constants directly on the entity, and do NOT split them into a sibling class — that breaks the "one place to look per entity" rule.
+- **Request DTO validation:** one FluentValidation `AbstractValidator<T>` per request DTO, lives flat in the feature folder (e.g. [`CreatePostRequestValidator`](../../../apps/api/src/Api/Features/Posts/CreatePostRequestValidator.cs)). Set `RuleLevelCascadeMode = CascadeMode.Stop` so each property reports one failure at a time. Validators are auto-discovered by `AddValidatorsFromAssemblyContaining<Program>()` in `Program.cs`. Apply per-endpoint with `.AddEndpointFilter<ValidationEndpointFilter<TRequest>>()` — see [`PostsEndpoints`](../../../apps/api/src/Api/Features/Posts/PostsEndpoints.cs) for the wiring. Failure → 400 with RFC 9457 `application/problem+json` (built by `Results.ValidationProblem`). The filter short-circuits **before** any handler logic, including 404/ETag checks.
+- **DTO ↔ entity mapping:** one `[Mapper] partial class <Feature>Mapper` per feature folder (e.g. [`PostMapper`](../../../apps/api/src/Api/Features/Posts/PostMapper.cs)) using Mapperly. Source-generated — the mapping code is plain C# you can step through, no runtime reflection. Register as a singleton in `Program.cs`. Use `RequiredMappingStrategy.Target` on the `[Mapper]` attribute and `[MapperIgnoreTarget(nameof(Post.Id))]` etc. to silence warnings for framework-managed fields (Id, CreatedAt, UpdatedAt, DeletedAt) that the mapper must not touch.
 
 ### Adding a new entity — checklist
 
 When you create a new DB-backed entity, walk this list:
 
-- [ ] **Entity** in `src/Api/Features/<Feature>/<Entity>.cs`. Implements `ITimestamped` (timestamps), `ISoftDeletable` (soft delete), or both. `Id` is `Guid` with `Guid.CreateVersion7()` default. Do not initialize `CreatedAt` / `UpdatedAt` / `DeletedAt`. If you implement `ISoftDeletable`, add `public bool IsDeleted => DeletedAt is not null;`.
+- [ ] **Entity** in `src/Api/Features/<Feature>/<Entity>.cs`. Implements `ITimestamped` (timestamps), `ISoftDeletable` (soft delete), or both. `Id` is `Guid` with `Guid.CreateVersion7()` default. Do not initialize `CreatedAt` / `UpdatedAt` / `DeletedAt`. If you implement `ISoftDeletable`, add `public bool IsDeleted => DeletedAt is not null;`. Declare every field-level constraint inside a **nested `public static class Constraints`** on the entity (max lengths, regex patterns, value ranges) so EF config, validators, and the OpenAPI spec read from one source of truth — e.g. `Post.Constraints.MaxTitleLength`.
 - [ ] **DbSet** added to `AppDbContext`: `public DbSet<MyEntity> MyEntities => Set<MyEntity>();`.
-- [ ] **OnModelCreating** in `AppDbContext`: configure keys, max lengths, unique indexes, FKs. Column defaults for `ITimestamped` timestamps AND the global query filter for `ISoftDeletable` are applied automatically by the convention loops — don't repeat them per entity.
+- [ ] **OnModelCreating** in `AppDbContext`: configure keys, max lengths (reference the nested constants — e.g. `HasMaxLength(MyEntity.Constraints.MaxTitleLength)`), unique indexes, FKs. Column defaults for `ITimestamped` timestamps AND the global query filter for `ISoftDeletable` are applied automatically by the convention loops — don't repeat them per entity.
+- [ ] **DTOs** in the feature folder (`<Entity>Dtos.cs`): one request record per write operation (`Create…Request`, `Update…Request`), one response record (`<Entity>Response`).
+- [ ] **Mapper** in the feature folder: `[Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)] public partial class <Entity>Mapper`. Declare `partial PostResponse ToResponse(Post source)`, `partial Post ToEntity(CreatePostRequest source)`, `partial void Apply(UpdatePostRequest source, Post target)`. Use `[MapperIgnoreTarget(...)]` on `ToEntity`/`Apply` for framework-managed fields (`Id`, `CreatedAt`, `UpdatedAt`, `DeletedAt`). Register as singleton in `Program.cs`. [`PostMapper`](../../../apps/api/src/Api/Features/Posts/PostMapper.cs) is the reference.
+- [ ] **Validators** in the feature folder: one `AbstractValidator<TRequest>` per request DTO. `RuleLevelCascadeMode = CascadeMode.Stop`. Reference the entity's nested `Constraints` for length limits and patterns (e.g. `MaximumLength(Post.Constraints.MaxTitleLength)`). Auto-discovered via `AddValidatorsFromAssemblyContaining<Program>()` — no manual registration. [`CreatePostRequestValidator`](../../../apps/api/src/Api/Features/Posts/CreatePostRequestValidator.cs) is the reference.
+- [ ] **Endpoint filter**: every POST / PUT / PATCH handler with a request body must be decorated `.AddEndpointFilter<ValidationEndpointFilter<TRequest>>()`. The filter runs **before** any handler logic — including 404 lookups and ETag preconditions — so a malformed body never burns a DB roundtrip.
 - [ ] **Generate the migration**: `dotnet ef migrations add Add<Entity> --project apps/api/src/Api --output-dir Data/Migrations`.
 - [ ] **Hand-add the UPDATE trigger to the migration's `Up()`** if the entity implements `ITimestamped`. The trigger function `set_timestamps_on_update()` already exists from `InitialCreate`; new tables just need their own `CREATE TRIGGER`:
 
@@ -95,7 +102,7 @@ if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
 {
     return notModified;
 }
-return Results.Ok(entity.ToResponse());
+return TypedResults.Ok(entity.ToResponse());
 
 // PUT / DELETE /<resource>/{id}
 if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditionFailure)
@@ -106,9 +113,20 @@ if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditio
 ConditionalRequest.SetETagHeader(http, ETag.From(entity));
 ```
 
+**Always pair the runtime helper with the OpenAPI marker** so the published contract matches what the runtime does. Three extensions in [`ConditionalRequestOpenApi`](../../../apps/api/src/Api/Data/ConditionalRequestOpenApi.cs):
+
+```csharp
+group.MapGet("/{id:guid}",   GetById).Produces(304).WithConditionalRead();
+group.MapPost("/",           Create).WithEtagResponseHeader();
+group.MapPut("/{id:guid}",   Update).WithConditionalWrite();
+group.MapDelete("/{id:guid}", Delete).WithConditionalWrite();
+```
+
+The operation transformer reads the marker and stamps the spec with `ETag` response headers on the right status codes (200/201/304/412 depending on kind) and the `If-Match` / `If-None-Match` request parameters. Forgetting the marker means a future TS client won't know it can send those headers — `OpenApiSpecTests` is the regression guard.
+
 **Order of checks** (mirror this in your endpoint):
 
-1. Request body validation (400) — no point checking preconditions on a malformed request.
+1. Request body validation (400) — handled by `ValidationEndpointFilter<TRequest>` via `.AddEndpointFilter<...>()`. Runs before the handler body, so a malformed request never reaches the resource lookup.
 2. Resource lookup (404) — no point checking preconditions on a non-existent resource.
 3. `EvaluateWrite` (428 / 412) — precondition check.
 4. Apply the change, refresh the ETag header on the response.
@@ -118,6 +136,18 @@ Why a strong tag from `UpdatedAt`? `AuditInterceptor` truncates `UpdatedAt` to m
 Collection endpoints (`GET /<resource>`) intentionally don't emit ETags — collection state is much harder to summarise cheaply, and the boilerplate doesn't need it yet.
 
 When you add a new single-resource endpoint, **integration tests must cover** at minimum: `ETag` present on GET/POST/PUT, `304` on matching `If-None-Match`, `428` on PUT/DELETE without `If-Match`, `412` on PUT/DELETE with a stale `If-Match`. These tests live alongside the resource's CRUD tests in one file per resource — [`PostsEndpointsTests`](../../../apps/api/tests/Api.Tests.Integration/PostsEndpointsTests.cs) is the reference layout (tests grouped by verb, ETag scenarios next to their CRUD counterparts).
+
+### OpenAPI spec
+
+The native ASP.NET 10 OpenAPI generator publishes `/openapi/v1.json` in all environments. The spec is the contract for any downstream client (current or future TS code), so it must reflect what the runtime actually enforces.
+
+[`FluentValidationSchemaTransformer`](../../../apps/api/src/Api/Validation/FluentValidationSchemaTransformer.cs) reflects validator rules into the generated schema. Today it propagates:
+
+- `required` — from `NotEmpty()` / `NotNull()`
+- `maxLength` / `minLength` — from any `ILengthValidator` (`MaximumLength`, `MinimumLength`, `Length(min, max)`)
+- `pattern` — from `Matches(...)` (`IRegularExpressionValidator`)
+
+If you add a new rule type to a validator, **confirm it shows up in the spec** — either by extending the transformer and adding a case to [`OpenApiSpecTests`](../../../apps/api/tests/Api.Tests.Integration/OpenApiSpecTests.cs), or by accepting that the rule won't be advertised to clients (rare; document it in the PR if so). Property-name mapping is camelCase-of-the-CLR-name; revisit the transformer if you ever introduce `[JsonPropertyName]` on a DTO.
 
 ### Running the API locally
 

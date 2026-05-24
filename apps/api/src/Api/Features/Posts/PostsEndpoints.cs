@@ -1,4 +1,6 @@
 using Api.Data;
+using Api.Validation;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Posts;
@@ -9,116 +11,116 @@ public static class PostsEndpoints
     {
         var group = app.MapGroup("/posts").WithTags("Posts");
 
-        group.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
-        {
-            var posts = await db.Posts
-                .AsNoTracking()
-                .OrderByDescending(p => p.CreatedAt)
-                .ToListAsync(ct);
+        group.MapGet("/", GetAll);
 
-            return Results.Ok(posts.Select(p => p.ToResponse()));
-        });
+        group.MapGet("/{id:guid}", GetById)
+            // 304 isn't carried by StatusCodeHttpResult's static metadata; advertise it explicitly.
+            .Produces(StatusCodes.Status304NotModified)
+            .WithConditionalRead();
 
-        group.MapGet("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            var post = await db.Posts
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == id, ct);
+        group.MapPost("/", Create)
+            .AddEndpointFilter<ValidationEndpointFilter<CreatePostRequest>>()
+            // The validation filter — not the handler — produces the 400. Advertise it here.
+            .ProducesValidationProblem()
+            .WithEtagResponseHeader();
 
-            if (post is null)
-            {
-                return Results.NotFound();
-            }
+        group.MapPut("/{id:guid}", Update)
+            .AddEndpointFilter<ValidationEndpointFilter<UpdatePostRequest>>()
+            .ProducesValidationProblem()
+            // ProblemHttpResult only declares 500 statically; declare the codes we actually return.
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .WithConditionalWrite();
 
-            var etag = ETag.From(post);
-            if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
-            {
-                return notModified;
-            }
-
-            return Results.Ok(post.ToResponse());
-        });
-
-        group.MapPost("/", async (CreatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            if (ValidateBody(request.Title, request.Content) is { } error)
-            {
-                return Results.BadRequest(new { error });
-            }
-
-            var post = new Post { Title = request.Title, Content = request.Content };
-            db.Posts.Add(post);
-            await db.SaveChangesAsync(ct);
-
-            ConditionalRequest.SetETagHeader(http, ETag.From(post));
-            return Results.Created($"/posts/{post.Id}", post.ToResponse());
-        });
-
-        group.MapPut("/{id:guid}", async (Guid id, UpdatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            if (ValidateBody(request.Title, request.Content) is { } error)
-            {
-                return Results.BadRequest(new { error });
-            }
-
-            var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
-            if (post is null)
-            {
-                return Results.NotFound();
-            }
-
-            if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
-            {
-                return preconditionFailure;
-            }
-
-            post.Title = request.Title;
-            post.Content = request.Content;
-            await db.SaveChangesAsync(ct);
-
-            ConditionalRequest.SetETagHeader(http, ETag.From(post));
-            return Results.Ok(post.ToResponse());
-        });
-
-        group.MapDelete("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
-            if (post is null)
-            {
-                return Results.NotFound();
-            }
-
-            if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
-            {
-                return preconditionFailure;
-            }
-
-            db.Posts.Remove(post);
-            await db.SaveChangesAsync(ct);
-
-            return Results.NoContent();
-        });
+        group.MapDelete("/{id:guid}", Delete)
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .WithConditionalWrite();
 
         return app;
     }
 
-    private static string? ValidateBody(string title, string content)
+    private static async Task<Ok<IEnumerable<PostResponse>>> GetAll(
+        AppDbContext db, PostMapper mapper, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(title))
+        var posts = await db.Posts
+            .AsNoTracking()
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync(ct);
+
+        return TypedResults.Ok(posts.Select(mapper.ToResponse));
+    }
+
+    private static async Task<Results<Ok<PostResponse>, NotFound, StatusCodeHttpResult>> GetById(
+        Guid id, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct)
+    {
+        var post = await db.Posts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
+
+        if (post is null)
         {
-            return "Title is required.";
+            return TypedResults.NotFound();
         }
 
-        if (title.Length > 200)
+        var etag = ETag.From(post);
+        if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
         {
-            return "Title must be 200 characters or fewer.";
+            return notModified;
         }
 
-        if (string.IsNullOrWhiteSpace(content))
+        return TypedResults.Ok(mapper.ToResponse(post));
+    }
+
+    private static async Task<Created<PostResponse>> Create(
+        CreatePostRequest request, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct)
+    {
+        var post = mapper.ToEntity(request);
+        db.Posts.Add(post);
+        await db.SaveChangesAsync(ct);
+
+        ConditionalRequest.SetETagHeader(http, ETag.From(post));
+        return TypedResults.Created($"/posts/{post.Id}", mapper.ToResponse(post));
+    }
+
+    private static async Task<Results<Ok<PostResponse>, NotFound, ProblemHttpResult>> Update(
+        Guid id, UpdatePostRequest request, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct)
+    {
+        var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (post is null)
         {
-            return "Content is required.";
+            return TypedResults.NotFound();
         }
 
-        return null;
+        if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
+        {
+            return preconditionFailure;
+        }
+
+        mapper.Apply(request, post);
+        await db.SaveChangesAsync(ct);
+
+        ConditionalRequest.SetETagHeader(http, ETag.From(post));
+        return TypedResults.Ok(mapper.ToResponse(post));
+    }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> Delete(
+        Guid id, HttpContext http, AppDbContext db, CancellationToken ct)
+    {
+        var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (post is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
+        {
+            return preconditionFailure;
+        }
+
+        db.Posts.Remove(post);
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.NoContent();
     }
 }

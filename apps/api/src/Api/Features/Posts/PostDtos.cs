@@ -10,9 +10,3 @@ public sealed record PostResponse(
     string Content,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
-
-internal static class PostMappings
-{
-    public static PostResponse ToResponse(this Post post) =>
-        new(post.Id, post.Title, post.Content, post.CreatedAt, post.UpdatedAt);
-}
