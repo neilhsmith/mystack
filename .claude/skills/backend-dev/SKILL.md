@@ -36,7 +36,8 @@ apps/api/
 │   ├── Http/                             # cross-cutting HTTP layer
 │   │   ├── ETag.cs                       # strong RFC 7232 tag from Postgres xmin
 │   │   ├── ConditionalRequest.cs         # If-None-Match → 304; If-Match → 412/428
-│   │   └── ConditionalRequestOpenApi.cs  # .WithConditionalRead/Write/EtagResponseHeader markers + transformer
+│   │   ├── ConditionalRequestOpenApi.cs  # .WithConditionalRead/Write/EtagResponseHeader markers + transformer
+│   │   └── ConditionalRequestETagAssertionFilter.cs  # runtime guardrail: marker + missing ETag header on success = throw
 │   └── Validation/                       # cross-cutting validation layer
 │       ├── ValidationEndpointFilter.cs   # runs IValidator<T>, short-circuits with problem+json
 │       └── FluentValidationSchemaTransformer.cs  # reflects validator rules into the OpenAPI schema
@@ -136,7 +137,12 @@ group.MapPut("/{id:guid}",   Update).WithConditionalWrite();
 group.MapDelete("/{id:guid}", Delete).WithConditionalWrite();
 ```
 
-The operation transformer reads the marker and stamps the spec with `ETag` response headers on the right status codes (200/201/304/412 depending on kind) and the `If-Match` / `If-None-Match` request parameters. Forgetting the marker means a future TS client won't know it can send those headers — `OpenApiSpecTests` is the regression guard.
+Each marker does two things:
+
+1. **OpenAPI metadata** — the operation transformer stamps the spec with `ETag` response headers on the right status codes (200/201/304/412 depending on kind) and the `If-Match` / `If-None-Match` request parameters.
+2. **Runtime guardrail** — [`ConditionalRequestETagAssertionFilter`](../../../apps/api/src/Api/Http/ConditionalRequestETagAssertionFilter.cs) runs after the handler and throws `InvalidOperationException` if the response status promises an ETag (per the spec) but the handler didn't set one. Forgetting `SetETagHeader` on a successful write now fails the request loudly instead of silently shipping a spec lie.
+
+Forgetting the marker itself means a future TS client won't know it can send those headers — `OpenApiSpecTests` is the regression guard for that side; the filter is the guard for the runtime side.
 
 **Order of checks** (mirror this in your endpoint):
 
