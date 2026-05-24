@@ -32,6 +32,7 @@ These rules govern how agents interact with this repo:
 6. **Wait for human review.** Don't merge your own PRs.
 7. **Respond to review feedback** by pushing additional commits to the same branch, not by force-pushing or rebasing (unless explicitly asked).
 8. **When unsure, ask** rather than guess. The cost of asking is low; the cost of doing the wrong thing and creating cleanup work is high.
+9. **Touching `apps/api/`? Use the [`backend-dev`](.claude/skills/backend-dev/SKILL.md) skill.** It covers app launch (with collision-free ports for parallel worktrees), test discipline (*if you change source, you change tests*), and the **mandatory** pre-PR validation checklist. Paste the skill's validation report into the PR body — the human reviewer relies on it. Skipping any step in that checklist is not an option for backend PRs.
 
 ## Current commands
 
@@ -61,11 +62,12 @@ More commands will be added as the stack grows.
 
 ## Testing conventions
 
-- **Unit tests** (`apps/api/tests/Api.Tests.Unit/`): pure in-process tests of individual classes/functions. No I/O, no DI container boot, no HTTP. Add tests here as services, validators, handlers etc. land in `src/Api/`.
-- **Integration tests** (`apps/api/tests/Api.Tests.Integration/`): boot the real ASP.NET host via `WebApplicationFactory<Program>` and exercise the app end-to-end over `HttpClient`. When real dependencies (DB, queues, etc.) get added, prefer [Testcontainers](https://dotnet.testcontainers.org/) over mocks/in-memory fakes.
-- `Program` is a `public partial class` purely so `WebApplicationFactory<Program>` can reach it from the integration test project. Don't delete that declaration.
-- Use xUnit `[Theory]` + `[InlineData]` for table-driven tests (see `HealthEndpointTests`).
-- When awaiting `HttpClient` (or anything that takes a `CancellationToken`) in a test, pass `TestContext.Current.CancellationToken` — the xUnit analyzer warns otherwise.
+High-level summary — the authoritative recipe (with examples, decision tables, and the pre-PR checklist) lives in the [`backend-dev`](.claude/skills/backend-dev/SKILL.md) skill.
+
+- **Unit tests** (`apps/api/tests/Api.Tests.Unit/`): pure in-process. No I/O, no DI container, no HTTP.
+- **Integration tests** (`apps/api/tests/Api.Tests.Integration/`): real ASP.NET host via `WebApplicationFactory<Program>` over `HttpClient`. For real dependencies (DB, queues), prefer [Testcontainers](https://dotnet.testcontainers.org/) over mocks/in-memory fakes.
+- Behavior changes require test changes. Refactors should pass existing tests unchanged.
+- xUnit v3 on Microsoft Testing Platform — pass `TestContext.Current.CancellationToken` when calling anything that accepts a token (the `xUnit1051` analyzer warns otherwise).
 
 ## Things never to do (current list — will grow)
 
@@ -77,4 +79,10 @@ More commands will be added as the stack grows.
 
 ## Skill files
 
-`.claude/skills/` will be populated as patterns emerge. Currently empty. When adding skills, follow the convention of one folder per skill with a `SKILL.md` inside.
+Skills live under `.claude/skills/`, one folder per skill, each with a `SKILL.md` inside. They auto-trigger on keyword matches in their description — name and describe them in action terms, not role terms, so triggers are unambiguous.
+
+Currently available:
+
+- [`backend-dev`](.claude/skills/backend-dev/SKILL.md) — workflow for tasks touching `apps/api/`. **Required for any backend PR** (see workflow rule #9 above). Project-specific: where tests live, how to launch the app on a free port, the mandatory pre-PR checklist.
+- [`tdd`](.claude/skills/tdd/SKILL.md) — general TDD philosophy and workflow (red-green-refactor, vertical slices, what makes a good test, when to mock). Cross-language guidance; examples are C#/xUnit. Use whenever you're writing tests, regardless of stack.
+- [`zoom-out`](.claude/skills/zoom-out/SKILL.md) — user-invoked only (`disable-model-invocation: true`). Use when you (the human) want the agent to step back and map an unfamiliar area at a higher level of abstraction before diving in.
