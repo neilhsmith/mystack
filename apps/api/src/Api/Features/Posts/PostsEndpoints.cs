@@ -1,4 +1,5 @@
 using Api.Data;
+using Api.Validation;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Features.Posts;
@@ -9,17 +10,17 @@ public static class PostsEndpoints
     {
         var group = app.MapGroup("/posts").WithTags("Posts");
 
-        group.MapGet("/", async (AppDbContext db, CancellationToken ct) =>
+        group.MapGet("/", async (AppDbContext db, PostMapper mapper, CancellationToken ct) =>
         {
             var posts = await db.Posts
                 .AsNoTracking()
                 .OrderByDescending(p => p.CreatedAt)
                 .ToListAsync(ct);
 
-            return Results.Ok(posts.Select(p => p.ToResponse()));
+            return Results.Ok(posts.Select(mapper.ToResponse));
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct) =>
         {
             var post = await db.Posts
                 .AsNoTracking()
@@ -36,49 +37,40 @@ public static class PostsEndpoints
                 return notModified;
             }
 
-            return Results.Ok(post.ToResponse());
+            return Results.Ok(mapper.ToResponse(post));
         });
 
-        group.MapPost("/", async (CreatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            if (ValidateBody(request.Title, request.Content) is { } error)
+        group.MapPost("/", async (CreatePostRequest request, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct) =>
             {
-                return Results.BadRequest(new { error });
-            }
+                var post = mapper.ToEntity(request);
+                db.Posts.Add(post);
+                await db.SaveChangesAsync(ct);
 
-            var post = new Post { Title = request.Title, Content = request.Content };
-            db.Posts.Add(post);
-            await db.SaveChangesAsync(ct);
+                ConditionalRequest.SetETagHeader(http, ETag.From(post));
+                return Results.Created($"/posts/{post.Id}", mapper.ToResponse(post));
+            })
+            .AddEndpointFilter<ValidationEndpointFilter<CreatePostRequest>>();
 
-            ConditionalRequest.SetETagHeader(http, ETag.From(post));
-            return Results.Created($"/posts/{post.Id}", post.ToResponse());
-        });
-
-        group.MapPut("/{id:guid}", async (Guid id, UpdatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
-        {
-            if (ValidateBody(request.Title, request.Content) is { } error)
+        group.MapPut("/{id:guid}", async (Guid id, UpdatePostRequest request, HttpContext http, AppDbContext db, PostMapper mapper, CancellationToken ct) =>
             {
-                return Results.BadRequest(new { error });
-            }
+                var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
+                if (post is null)
+                {
+                    return Results.NotFound();
+                }
 
-            var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
-            if (post is null)
-            {
-                return Results.NotFound();
-            }
+                if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
+                {
+                    return preconditionFailure;
+                }
 
-            if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
-            {
-                return preconditionFailure;
-            }
+                mapper.Apply(request, post);
+                await db.SaveChangesAsync(ct);
 
-            post.Title = request.Title;
-            post.Content = request.Content;
-            await db.SaveChangesAsync(ct);
-
-            ConditionalRequest.SetETagHeader(http, ETag.From(post));
-            return Results.Ok(post.ToResponse());
-        });
+                ConditionalRequest.SetETagHeader(http, ETag.From(post));
+                return Results.Ok(mapper.ToResponse(post));
+            })
+            .AddEndpointFilter<ValidationEndpointFilter<UpdatePostRequest>>();
 
         group.MapDelete("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
@@ -100,25 +92,5 @@ public static class PostsEndpoints
         });
 
         return app;
-    }
-
-    private static string? ValidateBody(string title, string content)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return "Title is required.";
-        }
-
-        if (title.Length > 200)
-        {
-            return "Title must be 200 characters or fewer.";
-        }
-
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return "Content is required.";
-        }
-
-        return null;
     }
 }
