@@ -1,7 +1,7 @@
 using Api.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Api.Posts;
+namespace Api.Features.Posts;
 
 public static class PostsEndpoints
 {

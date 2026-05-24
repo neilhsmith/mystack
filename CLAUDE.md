@@ -4,8 +4,8 @@ A personal full-stack boilerplate. **Currently in v0** — this is a bare skelet
 
 ## Current state
 
-- ASP.NET 10 API at `apps/api/` with `/hello`, `/health` (live/ready/aggregate), and `/posts` (CRUD) endpoints. Feature-folder layout: `src/Api/Posts/`, `src/Api/Data/`.
-- EF Core 10 + Npgsql provider; `AppDbContext` with `Posts` DbSet. Migrations live in `src/Api/Migrations/` and apply on startup in `Development` env.
+- ASP.NET 10 API at `apps/api/` with `/hello`, `/health` (live/ready/aggregate), and `/posts` (CRUD) endpoints. Feature-folder layout: `src/Api/Features/<feature>/`. Cross-cutting infrastructure (DbContext, migrations) lives under `src/Api/Data/`.
+- EF Core 10 + Npgsql provider; `AppDbContext` with `Posts` DbSet. Migrations live in `src/Api/Data/Migrations/` and apply on startup in `Development` env.
 - Postgres via `infra/docker-compose.yml`. Default `docker compose up` (run from `infra/`) brings up only Postgres so the API can run natively. `docker compose --profile full up` brings up the full stack including a built API container.
 - Production-style Dockerfile at `apps/api/src/Api/Dockerfile` (multi-stage, .NET 10 SDK → ASP.NET 10 runtime).
 - Test projects at `apps/api/tests/Api.Tests.Unit` and `apps/api/tests/Api.Tests.Integration` (xUnit v3, Microsoft Testing Platform). Integration tests use `WebApplicationFactory<Program>` + a shared `Testcontainers.PostgreSql` container (`ApiTestFactory`).
@@ -74,8 +74,8 @@ dotnet test apps/api/tests/Api.Tests.Integration
 dotnet test --solution apps/api/Api.slnx --collect:"XPlat Code Coverage"
 
 # --- EF Core migrations ---
-# Add a migration (after model changes)
-dotnet ef migrations add <Name> --project apps/api/src/Api
+# Add a migration (after model changes). Always pass --output-dir so files land under Data/Migrations/.
+dotnet ef migrations add <Name> --project apps/api/src/Api --output-dir Data/Migrations
 
 # Apply migrations against the running dev Postgres (Program also does this on startup in Dev)
 dotnet ef database update --project apps/api/src/Api

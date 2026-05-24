@@ -18,14 +18,25 @@ The recipe for working on `apps/api/` without breaking things. Three sections �
 ```
 apps/api/
 ├── Api.slnx                              # solution (multi-project)
+├── Directory.Build.props                 # solution-wide MSBuild props
 ├── src/Api/                              # the API itself
 │   ├── Program.cs                        # entry point + endpoint mapping
 │   ├── Api.csproj
-│   └── Properties/launchSettings.json    # local debug ports (5084 / 7199)
+│   ├── Dockerfile                        # production image
+│   ├── Properties/launchSettings.json    # local debug ports (5084 / 7199)
+│   ├── Features/                         # one folder per feature (Posts/, …)
+│   │   └── Posts/                        # Post entity, DTOs, MapPostsEndpoints
+│   └── Data/                             # cross-cutting data layer
+│       ├── AppDbContext.cs
+│       ├── DesignTimeDbContextFactory.cs
+│       └── Migrations/                   # EF Core generated
 └── tests/
     ├── Api.Tests.Unit/                   # pure in-process tests
     └── Api.Tests.Integration/            # WebApplicationFactory<Program>-based
+        └── Fixtures/                     # ApiTestFactory (Testcontainers)
 ```
+
+**New features go under `src/Api/Features/<FeatureName>/`.** Keep cross-cutting concerns (DbContext, migrations, future Auth/Telemetry/etc.) at `src/Api/` root, not under `Features/`.
 
 `Program` is a `public partial class` solely so `WebApplicationFactory<Program>` can reach it from the integration test project. **Do not delete that declaration** at the bottom of `Program.cs`.
 

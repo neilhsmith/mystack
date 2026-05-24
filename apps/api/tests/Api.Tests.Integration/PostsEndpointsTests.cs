@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Api.Data;
-using Api.Posts;
+using Api.Features.Posts;
 using Api.Tests.Integration.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

@@ -1,5 +1,5 @@
 using Api.Data;
-using Api.Posts;
+using Api.Features.Posts;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;

@@ -1,4 +1,4 @@
-using Api.Posts;
+using Api.Features.Posts;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api.Data;

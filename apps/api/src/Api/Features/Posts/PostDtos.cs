@@ -1,4 +1,4 @@
-namespace Api.Posts;
+namespace Api.Features.Posts;
 
 public sealed record CreatePostRequest(string Title, string Content);
 
