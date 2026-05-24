@@ -44,6 +44,7 @@ public class OpenApiSpecTests
 
         AssertRequired(schema, "title", "content");
         AssertMaxLength(schema, "title", Api.Features.Posts.Post.MaxTitleLength);
+        AssertMaxLength(schema, "content", Api.Features.Posts.Post.MaxContentLength);
     }
 
     [Fact]
@@ -53,6 +54,7 @@ public class OpenApiSpecTests
 
         AssertRequired(schema, "title", "content");
         AssertMaxLength(schema, "title", Api.Features.Posts.Post.MaxTitleLength);
+        AssertMaxLength(schema, "content", Api.Features.Posts.Post.MaxContentLength);
     }
 
     private async Task<JsonElement> GetSchema(string schemaName)

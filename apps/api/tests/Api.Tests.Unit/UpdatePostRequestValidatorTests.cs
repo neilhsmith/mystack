@@ -54,6 +54,19 @@ public class UpdatePostRequestValidatorTests
         AssertSingleError(result, nameof(UpdatePostRequest.Content), "Content is required.");
     }
 
+    [Fact]
+    public void Content_OverMaxLength_Fails_With_MaxLengthMessage()
+    {
+        var overMax = new string('x', Post.MaxContentLength + 1);
+
+        var result = _validator.Validate(new UpdatePostRequest("Title", overMax));
+
+        AssertSingleError(
+            result,
+            nameof(UpdatePostRequest.Content),
+            $"Content must be {Post.MaxContentLength} characters or fewer.");
+    }
+
     private static void AssertSingleError(ValidationResult result, string property, string expectedMessage)
     {
         Assert.False(result.IsValid);

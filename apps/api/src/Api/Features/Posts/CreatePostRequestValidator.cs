@@ -19,6 +19,8 @@ public sealed class CreatePostRequestValidator : AbstractValidator<CreatePostReq
 
         RuleFor(x => x.Content)
             .NotEmpty().WithMessage("Content is required.")
-            .Must(static c => !string.IsNullOrWhiteSpace(c)).WithMessage("Content is required.");
+            .Must(static c => !string.IsNullOrWhiteSpace(c)).WithMessage("Content is required.")
+            .MaximumLength(Post.MaxContentLength)
+                .WithMessage($"Content must be {Post.MaxContentLength} characters or fewer.");
     }
 }

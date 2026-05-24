@@ -17,6 +17,8 @@ public sealed class UpdatePostRequestValidator : AbstractValidator<UpdatePostReq
 
         RuleFor(x => x.Content)
             .NotEmpty().WithMessage("Content is required.")
-            .Must(static c => !string.IsNullOrWhiteSpace(c)).WithMessage("Content is required.");
+            .Must(static c => !string.IsNullOrWhiteSpace(c)).WithMessage("Content is required.")
+            .MaximumLength(Post.MaxContentLength)
+                .WithMessage($"Content must be {Post.MaxContentLength} characters or fewer.");
     }
 }

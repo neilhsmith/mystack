@@ -65,6 +65,29 @@ public class CreatePostRequestValidatorTests
         AssertSingleError(result, nameof(CreatePostRequest.Content), "Content is required.");
     }
 
+    [Fact]
+    public void Content_AtMaxLength_Passes()
+    {
+        var atMax = new string('x', Post.MaxContentLength);
+
+        var result = _validator.Validate(new CreatePostRequest("Title", atMax));
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Content_OverMaxLength_Fails_With_MaxLengthMessage()
+    {
+        var overMax = new string('x', Post.MaxContentLength + 1);
+
+        var result = _validator.Validate(new CreatePostRequest("Title", overMax));
+
+        AssertSingleError(
+            result,
+            nameof(CreatePostRequest.Content),
+            $"Content must be {Post.MaxContentLength} characters or fewer.");
+    }
+
     private static void AssertSingleError(ValidationResult result, string property, string expectedMessage)
     {
         Assert.False(result.IsValid);

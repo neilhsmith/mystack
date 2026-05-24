@@ -227,6 +227,20 @@ public class PostsEndpointsTests : IAsyncLifetime
         await AssertNoPostsExist();
     }
 
+    [Fact]
+    public async Task Post_Returns400_WhenContentTooLong()
+    {
+        var request = new CreatePostRequest("title", new string('x', Post.MaxContentLength + 1));
+
+        var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
+
+        await AssertValidationProblem(
+            response,
+            nameof(CreatePostRequest.Content),
+            $"Content must be {Post.MaxContentLength} characters or fewer.");
+        await AssertNoPostsExist();
+    }
+
     // ---------- PUT /posts/{id} ----------
 
     [Fact]
