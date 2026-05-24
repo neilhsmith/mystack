@@ -1,10 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
+using Api.Tests.Integration.Fixtures;
 
 namespace Api.Tests.Integration;
 
-public class HelloEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(IntegrationTestCollection))]
+public class HelloEndpointTests(ApiTestFactory factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 

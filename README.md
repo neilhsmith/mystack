@@ -8,22 +8,41 @@ Personal full-stack boilerplate. Work in progress.
 
 ## Quick start
 
-```bash
-# Run the API
+```powershell
+# 1. Start Postgres (default profile is just infra — fast dev loop, API runs natively).
+cd infra; docker compose up -d; cd ..
+
+# 2. Run the API. Applies EF migrations on startup in Development.
 dotnet run --project apps/api/src/Api
 
-# Should respond at http://localhost:5xxx/hello
+# Endpoints:
+#   GET    http://localhost:5084/hello
+#   GET    http://localhost:5084/health (live | ready | aggregate)
+#   GET    http://localhost:5084/posts
+#   GET    http://localhost:5084/posts/{id}
+#   POST   http://localhost:5084/posts
+#   PUT    http://localhost:5084/posts/{id}
+#   DELETE http://localhost:5084/posts/{id}
+```
+
+To bring up the **full stack inside Docker** (API container + Postgres), use the `full` compose profile:
+
+```powershell
+cd infra; docker compose --profile full up -d --build
+# API at http://localhost:8080
 ```
 
 ## Tests
 
-Two test projects live under `apps/api/tests/`: `Api.Tests.Unit` (fast, in-process) and `Api.Tests.Integration` (boots the real ASP.NET host via `WebApplicationFactory<Program>`). Both use **xUnit v3** on the **Microsoft Testing Platform**.
+Two test projects under `apps/api/tests/`: `Api.Tests.Unit` (fast, in-process) and `Api.Tests.Integration` (boots the real ASP.NET host via `WebApplicationFactory<Program>` against a throwaway Postgres container spun up by **Testcontainers**). Both use **xUnit v3** on the **Microsoft Testing Platform**.
 
-```bash
-# All tests
+**Integration tests require Docker to be running locally.** CI provides Docker as part of the GitHub Actions Ubuntu runner.
+
+```powershell
+# All tests (Docker required for integration)
 dotnet test --solution apps/api/Api.slnx
 
-# Just unit tests
+# Just unit tests (no Docker needed)
 dotnet test apps/api/tests/Api.Tests.Unit
 
 # Just integration tests

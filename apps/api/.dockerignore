@@ -1,0 +1,23 @@
+**/bin
+**/obj
+**/.vs
+**/.vscode
+**/.idea
+**/*.user
+**/*.suo
+**/.DS_Store
+**/Thumbs.db
+
+# Tests (don't ship test code in the runtime image)
+tests/
+
+# Docs / git
+**/*.md
+.git/
+.gitignore
+.gitattributes
+.editorconfig
+
+# Coverage / artifacts
+**/TestResults/
+**/coverage/
