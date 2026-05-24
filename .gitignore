@@ -1,0 +1,45 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Node
+node_modules/
+.pnpm-store/
+dist/
+build/
+.turbo/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+secrets/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage / test output
+coverage/
+.coverage/
+TestResults/
+
+# Build artifacts
+*.dll
+*.exe
+*.pdb
+
+# Claude Code worktrees + per-user settings (local-only)
+.claude/worktrees/
+.claude/settings.local.json
