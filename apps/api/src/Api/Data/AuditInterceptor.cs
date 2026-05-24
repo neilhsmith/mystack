@@ -11,7 +11,8 @@ namespace Api.Data;
 ///   <item><see cref="ITimestamped"/>: stamps <c>CreatedAt</c>/<c>UpdatedAt</c> — both on insert,
 ///   <c>UpdatedAt</c> only on update, <c>CreatedAt</c> defended against accidental mutation.
 ///   Values are truncated to microsecond precision so the in-memory entity matches what
-///   Postgres <c>timestamptz</c> stores (lets ETags / conditional GETs work without drift).</item>
+///   Postgres <c>timestamptz</c> stores — API responses then read back identical to the
+///   persisted row, instead of being a few sub-microsecond ticks ahead.</item>
 /// </list>
 /// Soft-delete pass runs first so converted-to-Modified entries flow through the timestamp
 /// pass naturally and pick up an UpdatedAt bump.

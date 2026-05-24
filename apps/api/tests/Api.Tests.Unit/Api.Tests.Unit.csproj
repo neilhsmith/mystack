@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Pin EF Core 10.0.8 so the unit project sees the same version Api transitively uses
+         (Npgsql.EntityFrameworkCore.PostgreSQL alone resolves to 10.0.4, which clashes with
+         Microsoft.EntityFrameworkCore.Design 10.0.8 from the Api project). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
     <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
   </ItemGroup>
 
