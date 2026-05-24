@@ -9,7 +9,14 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Missing connection string 'DefaultConnection'.");
 
-builder.Services.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(connectionString));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<TimestampsInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
+{
+    opts.UseNpgsql(connectionString);
+    opts.AddInterceptors(sp.GetRequiredService<TimestampsInterceptor>());
+});
 
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])

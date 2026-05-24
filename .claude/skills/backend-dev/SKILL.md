@@ -29,6 +29,8 @@ apps/api/
 │   └── Data/                             # cross-cutting data layer
 │       ├── AppDbContext.cs
 │       ├── DesignTimeDbContextFactory.cs
+│       ├── IHasTimestamps.cs             # marker: opts an entity into auto CreatedAt/UpdatedAt
+│       ├── TimestampsInterceptor.cs      # SaveChanges hook that stamps & truncates timestamps
 │       └── Migrations/                   # EF Core generated
 └── tests/
     ├── Api.Tests.Unit/                   # pure in-process tests
@@ -37,6 +39,12 @@ apps/api/
 ```
 
 **New features go under `src/Api/Features/<FeatureName>/`.** Keep cross-cutting concerns (DbContext, migrations, future Auth/Telemetry/etc.) at `src/Api/` root, not under `Features/`.
+
+### Conventions for new entities
+
+- **Timestamps:** implement `IHasTimestamps` from `Api.Data` to get `CreatedAt` / `UpdatedAt` set automatically by `TimestampsInterceptor` on every SaveChanges. **Do not** initialize the properties on the entity or assign them in endpoint handlers — the interceptor is the single source of truth, and it truncates to microsecond precision so API responses match what Postgres persists (ETags / conditional GETs depend on this exact match).
+- **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
+- **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
 
 `Program` is a `public partial class` solely so `WebApplicationFactory<Program>` can reach it from the integration test project. **Do not delete that declaration** at the bottom of `Program.cs`.
 
