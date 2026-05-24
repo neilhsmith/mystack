@@ -1,6 +1,7 @@
+using Api.Data;
 using Microsoft.Net.Http.Headers;
 
-namespace Api.Data;
+namespace Api.Http;
 
 /// <summary>
 /// Builds strong RFC 7232 entity tags from <see cref="ITimestamped.UpdatedAt"/>.

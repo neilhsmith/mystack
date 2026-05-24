@@ -1,5 +1,6 @@
 using Api.Data;
 using Api.Features.Posts;
+using Api.Http;
 using Api.Validation;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;

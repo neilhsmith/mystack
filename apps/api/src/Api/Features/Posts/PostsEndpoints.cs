@@ -1,4 +1,5 @@
 using Api.Data;
+using Api.Http;
 using Api.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
