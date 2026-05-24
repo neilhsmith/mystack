@@ -24,7 +24,8 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Posts.ExecuteDeleteAsync();
+        // IgnoreQueryFilters so we also nuke any soft-deleted rows from previous tests.
+        await db.Posts.IgnoreQueryFilters().ExecuteDeleteAsync();
     }
 
     public ValueTask DisposeAsync() => default;

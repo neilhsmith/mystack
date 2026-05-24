@@ -24,7 +24,7 @@ public class TimestampsDbSafetyNetTests : IAsyncLifetime
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Posts.ExecuteDeleteAsync();
+        await db.Posts.IgnoreQueryFilters().ExecuteDeleteAsync();
     }
 
     public ValueTask DisposeAsync() => default;

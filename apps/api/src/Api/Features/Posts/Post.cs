@@ -2,7 +2,7 @@ using Api.Data;
 
 namespace Api.Features.Posts;
 
-public sealed class Post : IHasTimestamps
+public sealed class Post : ITimestamped, ISoftDeletable
 {
     public Guid Id { get; init; } = Guid.CreateVersion7();
 
@@ -13,4 +13,8 @@ public sealed class Post : IHasTimestamps
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    public DateTimeOffset? DeletedAt { get; set; }
+
+    public bool IsDeleted => DeletedAt is not null;
 }

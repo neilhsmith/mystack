@@ -10,12 +10,12 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? throw new InvalidOperationException("Missing connection string 'DefaultConnection'.");
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<TimestampsInterceptor>();
+builder.Services.AddSingleton<AuditInterceptor>();
 
 builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
 {
     opts.UseNpgsql(connectionString);
-    opts.AddInterceptors(sp.GetRequiredService<TimestampsInterceptor>());
+    opts.AddInterceptors(sp.GetRequiredService<AuditInterceptor>());
 });
 
 builder.Services.AddHealthChecks()

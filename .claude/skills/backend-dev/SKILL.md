@@ -29,8 +29,9 @@ apps/api/
 │   └── Data/                             # cross-cutting data layer
 │       ├── AppDbContext.cs
 │       ├── DesignTimeDbContextFactory.cs
-│       ├── IHasTimestamps.cs             # marker: opts an entity into auto CreatedAt/UpdatedAt
-│       ├── TimestampsInterceptor.cs      # SaveChanges hook that stamps & truncates timestamps
+│       ├── ITimestamped.cs               # marker: opts entity into auto CreatedAt/UpdatedAt
+│       ├── ISoftDeletable.cs             # marker: opts entity into soft delete (DeletedAt)
+│       ├── AuditInterceptor.cs           # SaveChanges hook: timestamps + soft-delete intercept
 │       └── Migrations/                   # EF Core generated
 └── tests/
     ├── Api.Tests.Unit/                   # pure in-process tests
@@ -42,7 +43,8 @@ apps/api/
 
 ### Conventions for new entities
 
-- **Timestamps:** implement `IHasTimestamps` from `Api.Data` to get `CreatedAt` / `UpdatedAt` set automatically by `TimestampsInterceptor` on every SaveChanges. **Do not** initialize the properties on the entity or assign them in endpoint handlers — the interceptor is the single source of truth, and it truncates to microsecond precision so API responses match what Postgres persists (ETags / conditional GETs depend on this exact match).
+- **Timestamps:** implement `ITimestamped` from `Api.Data` to get `CreatedAt` / `UpdatedAt` set automatically by `AuditInterceptor` on every SaveChanges. **Do not** initialize the properties on the entity or assign them in endpoint handlers — the interceptor is the single source of truth, and it truncates to microsecond precision so API responses match what Postgres persists (ETags / conditional GETs depend on this exact match).
+- **Soft delete:** implement `ISoftDeletable` from `Api.Data` to get a `DeletedAt` (nullable `DateTimeOffset`) column the `AuditInterceptor` populates whenever you call `db.<Entity>.Remove(...)`. The row is never hard-deleted by EF — a `DELETE` becomes an `UPDATE` setting `DeletedAt = now()`. A global query filter (applied automatically in `AppDbContext.OnModelCreating`) hides soft-deleted rows from every query; use `.IgnoreQueryFilters()` to opt out for admin/audit views. Add a convenience `public bool IsDeleted => DeletedAt is not null;` on the entity. Hard delete is still possible via raw SQL when truly needed (GDPR erasure, maintenance).
 - **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
 - **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
 
@@ -50,11 +52,11 @@ apps/api/
 
 When you create a new DB-backed entity, walk this list:
 
-- [ ] **Entity** in `src/Api/Features/<Feature>/<Entity>.cs`. Implements `IHasTimestamps` (if it should track timestamps). `Id` is `Guid` with `Guid.CreateVersion7()` default. Do not initialize `CreatedAt` / `UpdatedAt`.
+- [ ] **Entity** in `src/Api/Features/<Feature>/<Entity>.cs`. Implements `ITimestamped` (timestamps), `ISoftDeletable` (soft delete), or both. `Id` is `Guid` with `Guid.CreateVersion7()` default. Do not initialize `CreatedAt` / `UpdatedAt` / `DeletedAt`. If you implement `ISoftDeletable`, add `public bool IsDeleted => DeletedAt is not null;`.
 - [ ] **DbSet** added to `AppDbContext`: `public DbSet<MyEntity> MyEntities => Set<MyEntity>();`.
-- [ ] **OnModelCreating** in `AppDbContext`: configure keys, max lengths, unique indexes, FKs. Column defaults for `IHasTimestamps` timestamps are applied automatically by the convention loop — don't repeat them.
+- [ ] **OnModelCreating** in `AppDbContext`: configure keys, max lengths, unique indexes, FKs. Column defaults for `ITimestamped` timestamps AND the global query filter for `ISoftDeletable` are applied automatically by the convention loops — don't repeat them per entity.
 - [ ] **Generate the migration**: `dotnet ef migrations add Add<Entity> --project apps/api/src/Api --output-dir Data/Migrations`.
-- [ ] **Hand-add the UPDATE trigger to the migration's `Up()`** if the entity implements `IHasTimestamps`. The trigger function `set_timestamps_on_update()` already exists from `InitialCreate`; new tables just need their own `CREATE TRIGGER`:
+- [ ] **Hand-add the UPDATE trigger to the migration's `Up()`** if the entity implements `ITimestamped`. The trigger function `set_timestamps_on_update()` already exists from `InitialCreate`; new tables just need their own `CREATE TRIGGER`:
 
   ```csharp
   migrationBuilder.Sql(@"
@@ -71,7 +73,7 @@ When you create a new DB-backed entity, walk this list:
 
   Why hand-add it? Triggers protect against non-EF writers (Hangfire jobs, serverless functions, raw SQL maintenance) leaving `UpdatedAt` stale or accidentally mutating `CreatedAt`. EF Core doesn't auto-generate trigger SQL, so the agent adding the entity owns it. Skipping it isn't a build failure — it's a future-confusing-bug.
 
-- [ ] **Tests** in `Api.Tests.Integration/` exercising the endpoints + (if the entity is timestamp-managed and accessible by non-EF writers in the future) a quick safety-net test against raw SQL — see [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) for the pattern.
+- [ ] **Tests** in `Api.Tests.Integration/` exercising the endpoints. If the entity is `ITimestamped` and accessible by non-EF writers in the future, add a raw-SQL safety-net test like [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs). If it's `ISoftDeletable`, mirror [`SoftDeleteTests`](../../../apps/api/tests/Api.Tests.Integration/SoftDeleteTests.cs) (proves the row survives + the query filter hides it). **Per-test cleanup must use `IgnoreQueryFilters()`** when calling `ExecuteDeleteAsync()` on soft-deletable tables, otherwise soft-deleted rows from previous tests accumulate.
 
 `Program` is a `public partial class` solely so `WebApplicationFactory<Program>` can reach it from the integration test project. **Do not delete that declaration** at the bottom of `Program.cs`.
 
