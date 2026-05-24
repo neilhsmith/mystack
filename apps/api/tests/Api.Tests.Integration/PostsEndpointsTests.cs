@@ -64,6 +64,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertNoPostsExist();
     }
 
     [Fact]
@@ -74,6 +75,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertNoPostsExist();
     }
 
     [Fact]
@@ -84,6 +86,7 @@ public class PostsEndpointsTests : IAsyncLifetime
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertNoPostsExist();
     }
 
     [Fact]
@@ -158,12 +161,20 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Put_Returns400_WhenTitleEmpty()
     {
-        var created = await CreatePost("Original", "body");
+        var created = await CreatePost("Original", "Original body");
         var update = new UpdatePostRequest("", "body");
 
         var response = await _client.PutAsJsonAsync($"/posts/{created.Id}", update, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var current = await _client.GetFromJsonAsync<PostResponse>(
+            $"/posts/{created.Id}",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(current);
+        Assert.Equal("Original", current.Title);
+        Assert.Equal("Original body", current.Content);
+        Assert.Equal(created.UpdatedAt, current.UpdatedAt);
     }
 
     [Fact]
@@ -195,5 +206,14 @@ public class PostsEndpointsTests : IAsyncLifetime
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<PostResponse>(TestContext.Current.CancellationToken);
         return body!;
+    }
+
+    private async Task AssertNoPostsExist()
+    {
+        var posts = await _client.GetFromJsonAsync<List<PostResponse>>(
+            "/posts",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(posts);
+        Assert.Empty(posts);
     }
 }
