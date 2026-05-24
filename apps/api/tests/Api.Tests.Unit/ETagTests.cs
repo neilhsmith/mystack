@@ -1,73 +1,65 @@
-using Api.Features.Posts;
 using Api.Http;
 
 namespace Api.Tests.Unit;
 
+/// <summary>
+/// Unit coverage for the primitive <see cref="ETag.From(uint)"/> form (xmin → strong
+/// quoted hex tag). The contextual overload <see cref="ETag.From(Microsoft.EntityFrameworkCore.DbContext, object)"/>
+/// needs a real <c>DbContext</c> to fish the shadow property and is exercised end-to-end
+/// by <c>PostsEndpointsTests</c>.
+/// </summary>
 public class ETagTests
 {
     [Fact]
-    public void From_Timestamp_ProducesStrongTagWithQuotedHexValue()
+    public void From_Xmin_ProducesStrongTagWithQuotedHexValue()
     {
-        var updatedAt = new DateTimeOffset(2026, 5, 24, 10, 0, 0, TimeSpan.Zero);
-
-        var tag = ETag.From(updatedAt);
+        var tag = ETag.From(0x12A8u);
 
         Assert.False(tag.IsWeak);
-        // 16 hex chars wrapped in double quotes → length 18 (the leading/trailing ").
+        // 8 hex chars wrapped in double quotes → length 10 (the leading/trailing ").
         var raw = tag.Tag.ToString();
-        Assert.Equal(18, raw.Length);
+        Assert.Equal(10, raw.Length);
         Assert.StartsWith("\"", raw);
         Assert.EndsWith("\"", raw);
         var hex = raw[1..^1];
-        Assert.Equal(16, hex.Length);
-        Assert.Matches("^[0-9A-F]{16}$", hex);
+        Assert.Equal(8, hex.Length);
+        Assert.Matches("^[0-9A-F]{8}$", hex);
     }
 
     [Fact]
-    public void From_Timestamp_IsDeterministic_ForSameInput()
+    public void From_Xmin_IsDeterministic_ForSameInput()
     {
-        var updatedAt = DateTimeOffset.UtcNow;
-
-        var a = ETag.From(updatedAt);
-        var b = ETag.From(updatedAt);
+        var a = ETag.From(42u);
+        var b = ETag.From(42u);
 
         Assert.Equal(a.Tag.ToString(), b.Tag.ToString());
     }
 
     [Fact]
-    public void From_Timestamp_DiffersForDifferentInputs()
+    public void From_Xmin_DiffersForDifferentInputs()
     {
-        var a = ETag.From(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        var b = ETag.From(new DateTimeOffset(2026, 1, 1, 0, 0, 1, TimeSpan.Zero));
+        var a = ETag.From(100u);
+        var b = ETag.From(101u);
 
         Assert.NotEqual(a.Tag.ToString(), b.Tag.ToString());
     }
 
     [Fact]
-    public void From_Timestamp_NormalizesToUtc()
+    public void From_Xmin_ZeroPadsToEightHexChars()
     {
-        // Same instant, different offsets → same UtcTicks → same ETag.
-        var utc = new DateTimeOffset(2026, 5, 24, 12, 0, 0, TimeSpan.Zero);
-        var sameInstantInDifferentZone = utc.ToOffset(TimeSpan.FromHours(5));
+        // Boundary check — small values must not collide via short representations.
+        var one = ETag.From(1u);
+        var sixteen = ETag.From(16u);
 
-        Assert.Equal(
-            ETag.From(utc).Tag.ToString(),
-            ETag.From(sameInstantInDifferentZone).Tag.ToString());
+        Assert.Equal("\"00000001\"", one.Tag.ToString());
+        Assert.Equal("\"00000010\"", sixteen.Tag.ToString());
     }
 
     [Fact]
-    public void From_Entity_DelegatesToUpdatedAt()
+    public void From_Xmin_HandlesMaxUInt()
     {
-        var updatedAt = new DateTimeOffset(2026, 5, 24, 10, 0, 0, TimeSpan.Zero);
-        var post = new Post
-        {
-            Title = "T",
-            Content = "C",
-            UpdatedAt = updatedAt,
-        };
+        var max = ETag.From(uint.MaxValue);
 
-        Assert.Equal(
-            ETag.From(updatedAt).Tag.ToString(),
-            ETag.From(post).Tag.ToString());
+        Assert.Equal("\"FFFFFFFF\"", max.Tag.ToString());
     }
 }

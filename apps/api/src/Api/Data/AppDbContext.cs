@@ -46,5 +46,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
             modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
         }
+
+        // Convention: every entity gets Postgres's `xmin` system column as a concurrency
+        // token. EF tracks it as a shadow property (no entity property required), throws
+        // DbUpdateConcurrencyException on stale writes, and the column is provider-managed
+        // so there's no migration cost when a new entity is added. ETags are derived from
+        // this same value (see ETag.From(DbContext, object)) so the HTTP precondition check
+        // and EF's DB-level concurrency check agree on what "current" means.
+        //
+        // Inlined from Npgsql's typed UseXminAsConcurrencyToken() extension — that one
+        // hangs off EntityTypeBuilder<T> only, and the convention loop scans by Type.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes()
+                     .Where(e => e.BaseType is null && !e.IsOwned()))
+        {
+            modelBuilder.Entity(entityType.ClrType)
+                .Property<uint>("xmin")
+                .HasColumnName("xmin")
+                .HasColumnType("xid")
+                .ValueGeneratedOnAddOrUpdate()
+                .IsConcurrencyToken();
+        }
     }
 }
