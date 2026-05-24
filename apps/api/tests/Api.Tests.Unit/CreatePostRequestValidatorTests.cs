@@ -35,7 +35,7 @@ public class CreatePostRequestValidatorTests
     [Fact]
     public void Title_AtMaxLength_Passes()
     {
-        var atMax = new string('x', Post.MaxTitleLength);
+        var atMax = new string('x', Post.Constraints.MaxTitleLength);
 
         var result = _validator.Validate(new CreatePostRequest(atMax, "Content"));
 
@@ -45,14 +45,14 @@ public class CreatePostRequestValidatorTests
     [Fact]
     public void Title_OverMaxLength_Fails_With_MaxLengthMessage()
     {
-        var overMax = new string('x', Post.MaxTitleLength + 1);
+        var overMax = new string('x', Post.Constraints.MaxTitleLength + 1);
 
         var result = _validator.Validate(new CreatePostRequest(overMax, "Content"));
 
         AssertSingleError(
             result,
             nameof(CreatePostRequest.Title),
-            $"Title must be {Post.MaxTitleLength} characters or fewer.");
+            $"Title must be {Post.Constraints.MaxTitleLength} characters or fewer.");
     }
 
     [Theory]
@@ -68,7 +68,7 @@ public class CreatePostRequestValidatorTests
     [Fact]
     public void Content_AtMaxLength_Passes()
     {
-        var atMax = new string('x', Post.MaxContentLength);
+        var atMax = new string('x', Post.Constraints.MaxContentLength);
 
         var result = _validator.Validate(new CreatePostRequest("Title", atMax));
 
@@ -78,14 +78,14 @@ public class CreatePostRequestValidatorTests
     [Fact]
     public void Content_OverMaxLength_Fails_With_MaxLengthMessage()
     {
-        var overMax = new string('x', Post.MaxContentLength + 1);
+        var overMax = new string('x', Post.Constraints.MaxContentLength + 1);
 
         var result = _validator.Validate(new CreatePostRequest("Title", overMax));
 
         AssertSingleError(
             result,
             nameof(CreatePostRequest.Content),
-            $"Content must be {Post.MaxContentLength} characters or fewer.");
+            $"Content must be {Post.Constraints.MaxContentLength} characters or fewer.");
     }
 
     private static void AssertSingleError(ValidationResult result, string property, string expectedMessage)

@@ -43,8 +43,8 @@ public class OpenApiSpecTests
         var schema = await GetSchema("CreatePostRequest");
 
         AssertRequired(schema, "title", "content");
-        AssertMaxLength(schema, "title", Api.Features.Posts.Post.MaxTitleLength);
-        AssertMaxLength(schema, "content", Api.Features.Posts.Post.MaxContentLength);
+        AssertMaxLength(schema, "title", Api.Features.Posts.Post.Constraints.MaxTitleLength);
+        AssertMaxLength(schema, "content", Api.Features.Posts.Post.Constraints.MaxContentLength);
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public class OpenApiSpecTests
         var schema = await GetSchema("UpdatePostRequest");
 
         AssertRequired(schema, "title", "content");
-        AssertMaxLength(schema, "title", Api.Features.Posts.Post.MaxTitleLength);
-        AssertMaxLength(schema, "content", Api.Features.Posts.Post.MaxContentLength);
+        AssertMaxLength(schema, "title", Api.Features.Posts.Post.Constraints.MaxTitleLength);
+        AssertMaxLength(schema, "content", Api.Features.Posts.Post.Constraints.MaxContentLength);
     }
 
     private async Task<JsonElement> GetSchema(string schemaName)

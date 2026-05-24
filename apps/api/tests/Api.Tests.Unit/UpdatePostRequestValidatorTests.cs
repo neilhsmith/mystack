@@ -34,14 +34,14 @@ public class UpdatePostRequestValidatorTests
     [Fact]
     public void Title_OverMaxLength_Fails_With_MaxLengthMessage()
     {
-        var overMax = new string('x', Post.MaxTitleLength + 1);
+        var overMax = new string('x', Post.Constraints.MaxTitleLength + 1);
 
         var result = _validator.Validate(new UpdatePostRequest(overMax, "Content"));
 
         AssertSingleError(
             result,
             nameof(UpdatePostRequest.Title),
-            $"Title must be {Post.MaxTitleLength} characters or fewer.");
+            $"Title must be {Post.Constraints.MaxTitleLength} characters or fewer.");
     }
 
     [Theory]
@@ -57,14 +57,14 @@ public class UpdatePostRequestValidatorTests
     [Fact]
     public void Content_OverMaxLength_Fails_With_MaxLengthMessage()
     {
-        var overMax = new string('x', Post.MaxContentLength + 1);
+        var overMax = new string('x', Post.Constraints.MaxContentLength + 1);
 
         var result = _validator.Validate(new UpdatePostRequest("Title", overMax));
 
         AssertSingleError(
             result,
             nameof(UpdatePostRequest.Content),
-            $"Content must be {Post.MaxContentLength} characters or fewer.");
+            $"Content must be {Post.Constraints.MaxContentLength} characters or fewer.");
     }
 
     private static void AssertSingleError(ValidationResult result, string property, string expectedMessage)

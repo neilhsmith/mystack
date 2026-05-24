@@ -35,12 +35,26 @@ We're going **code-first with shared constants**. The alternative — schema-fir
 
 ### The DRY trick
 
-A single `public const int MaxTitleLength = 200;` on the entity is referenced by:
-- The EF config (`HasMaxLength(Post.MaxTitleLength)`)
-- The FluentValidation rule (`RuleFor(x => x.Title).MaximumLength(Post.MaxTitleLength)`)
-- Eventually the OpenAPI spec (FluentValidation emits constraint metadata)
+Field constraints live in a nested `public static class Constraints` on the entity:
 
-One change, three layers updated. No codegen, no IDL, no magic.
+```csharp
+public sealed class Post
+{
+    public static class Constraints
+    {
+        public const int MaxTitleLength = 200;
+        public const int MaxContentLength = 10_000;
+    }
+    // ...
+}
+```
+
+Referenced by:
+- The EF config (`HasMaxLength(Post.Constraints.MaxTitleLength)`)
+- The FluentValidation rule (`RuleFor(x => x.Title).MaximumLength(Post.Constraints.MaxTitleLength)`)
+- The OpenAPI spec, via `FluentValidationSchemaTransformer`
+
+One change, three layers updated. No codegen, no IDL, no magic. The nesting keeps the constants visually grouped, namespaces them ("limits of what?" answered by the parent type), and accommodates future additions (regex patterns, value ranges) without polluting the entity's IntelliSense.
 
 ---
 
@@ -111,10 +125,10 @@ Each PR is self-contained, leaves the system shippable, and can be paused if dir
 
 **Goal:** kill the existing duplication; establish the shared-constant pattern.
 
-- Add `public const int MaxTitleLength = 200;` (and any other shared limits we identify) to `Post`.
-- `AppDbContext.OnModelCreating` uses `Post.MaxTitleLength` instead of the literal.
-- `PostsEndpoints.ValidateBody` references `Post.MaxTitleLength`.
-- Update tests to reference the constant where they assert "title too long" behaviour.
+- Add a nested `public static class Constraints` on `Post` with `MaxTitleLength = 200` (and any other shared limits we identify).
+- `AppDbContext.OnModelCreating` uses `Post.Constraints.MaxTitleLength` instead of the literal.
+- `PostsEndpoints.ValidateBody` references `Post.Constraints.MaxTitleLength`.
+- Update tests to reference the constants where they assert "title too long" behaviour.
 - Document the pattern in the `backend-dev` skill ("Conventions for new entities" subsection).
 
 No new dependencies. Smallest possible step that proves the pattern.
@@ -124,7 +138,7 @@ No new dependencies. Smallest possible step that proves the pattern.
 **Goal:** replace the hand-rolled `ValidateBody` with FluentValidation, integrate with the minimal-API pipeline.
 
 - Add `FluentValidation` (and likely `FluentValidation.DependencyInjectionExtensions`) packages.
-- `Features/Posts/CreatePostRequestValidator.cs` and `Features/Posts/UpdatePostRequestValidator.cs`. Reference `Post.MaxTitleLength`.
+- `Features/Posts/CreatePostRequestValidator.cs` and `Features/Posts/UpdatePostRequestValidator.cs`. Reference `Post.Constraints.MaxTitleLength`.
 - Endpoint filter — `ValidationEndpointFilter<T>` — that runs the validator and short-circuits with `Results.ValidationProblem(...)` (RFC 7807 problem+json) on failure. Apply via `.AddEndpointFilter<...>()` or a `.WithValidation<T>()` group convention.
 - Delete `PostsEndpoints.ValidateBody`.
 - Validators must be discoverable via DI (`services.AddValidatorsFromAssemblyContaining<Program>()`).

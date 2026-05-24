@@ -216,28 +216,28 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Post_Returns400_WhenTitleTooLong()
     {
-        var request = new CreatePostRequest(new string('x', Post.MaxTitleLength + 1), "content");
+        var request = new CreatePostRequest(new string('x', Post.Constraints.MaxTitleLength + 1), "content");
 
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(
             response,
             nameof(CreatePostRequest.Title),
-            $"Title must be {Post.MaxTitleLength} characters or fewer.");
+            $"Title must be {Post.Constraints.MaxTitleLength} characters or fewer.");
         await AssertNoPostsExist();
     }
 
     [Fact]
     public async Task Post_Returns400_WhenContentTooLong()
     {
-        var request = new CreatePostRequest("title", new string('x', Post.MaxContentLength + 1));
+        var request = new CreatePostRequest("title", new string('x', Post.Constraints.MaxContentLength + 1));
 
         var response = await _client.PostAsJsonAsync("/posts", request, TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(
             response,
             nameof(CreatePostRequest.Content),
-            $"Content must be {Post.MaxContentLength} characters or fewer.");
+            $"Content must be {Post.Constraints.MaxContentLength} characters or fewer.");
         await AssertNoPostsExist();
     }
 

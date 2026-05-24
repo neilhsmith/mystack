@@ -4,12 +4,11 @@ namespace Api.Features.Posts;
 
 public sealed class Post : ITimestamped, ISoftDeletable
 {
-    // --- Validation constants ---
-    // Shared scalar limits live on the entity so EF fluent config, FluentValidation,
-    // and (via the schema transformer) OpenAPI all read from one source of truth.
-    public const int MaxTitleLength = 200;
-    public const int MaxContentLength = 10_000;
-    // -----------------------------
+    public static class Constraints
+    {
+        public const int MaxTitleLength = 200;
+        public const int MaxContentLength = 10_000;
+    }
 
     public Guid Id { get; init; } = Guid.CreateVersion7();
 
