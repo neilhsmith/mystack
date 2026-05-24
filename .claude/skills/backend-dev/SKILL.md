@@ -1,6 +1,6 @@
 ---
 name: backend-dev
-description: Backend workflow for the ASP.NET API at `apps/api/`. Use when starting any task that touches `apps/api/` (source or tests), running the API locally, adding/editing/removing tests, or validating API changes before opening a PR. Covers app launch with collision-free ports, test discipline rules, and the mandatory pre-PR validation checklist.
+description: Backend workflow for the ASP.NET API at `apps/api/`. Use when starting any task that touches `apps/api/` (source or tests) — adding endpoints or entities, writing EF Core migrations, wiring ETags / RFC 7232 conditional requests, adding/editing/removing tests, running the API locally, or validating changes before opening a PR. Covers feature-folder layout, entity conventions (timestamps, soft delete, ETags), test organisation rules, the random-port launch trick, and the mandatory pre-PR validation checklist.
 ---
 
 # backend-dev
@@ -47,6 +47,7 @@ apps/api/
 - **Soft delete:** implement `ISoftDeletable` from `Api.Data` to get a `DeletedAt` (nullable `DateTimeOffset`) column the `AuditInterceptor` populates whenever you call `db.<Entity>.Remove(...)`. The row is never hard-deleted by EF — a `DELETE` becomes an `UPDATE` setting `DeletedAt = now()`. A global query filter (applied automatically in `AppDbContext.OnModelCreating`) hides soft-deleted rows from every query; use `.IgnoreQueryFilters()` to opt out for admin/audit views. Add a convenience `public bool IsDeleted => DeletedAt is not null;` on the entity. Hard delete is still possible via raw SQL when truly needed (GDPR erasure, maintenance).
 - **Primary keys:** `Guid` initialized with `Guid.CreateVersion7()` — sortable, distributed-safe.
 - **The current time:** inject `TimeProvider` (registered as `TimeProvider.System`) and call `GetUtcNow()`. Don't call `DateTimeOffset.UtcNow` directly — that ties the code to the wall clock and makes deterministic tests painful.
+- **ETags & conditional requests:** any endpoint that returns or mutates a single `ITimestamped` resource should surface an ETag and honour RFC 7232 preconditions via [`ETag.From(...)`](../../../apps/api/src/Api/Data/ETag.cs) and [`ConditionalRequest`](../../../apps/api/src/Api/Data/ConditionalRequest.cs). See the section below.
 
 ### Adding a new entity — checklist
 
@@ -73,9 +74,50 @@ When you create a new DB-backed entity, walk this list:
 
   Why hand-add it? Triggers protect against non-EF writers (Hangfire jobs, serverless functions, raw SQL maintenance) leaving `UpdatedAt` stale or accidentally mutating `CreatedAt`. EF Core doesn't auto-generate trigger SQL, so the agent adding the entity owns it. Skipping it isn't a build failure — it's a future-confusing-bug.
 
-- [ ] **Tests** in `Api.Tests.Integration/` exercising the endpoints. If the entity is `ITimestamped` and accessible by non-EF writers in the future, add a raw-SQL safety-net test like [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs). If it's `ISoftDeletable`, mirror [`SoftDeleteTests`](../../../apps/api/tests/Api.Tests.Integration/SoftDeleteTests.cs) (proves the row survives + the query filter hides it). **Per-test cleanup must use `IgnoreQueryFilters()`** when calling `ExecuteDeleteAsync()` on soft-deletable tables, otherwise soft-deleted rows from previous tests accumulate.
+- [ ] **Tests** in `Api.Tests.Integration/` exercising the endpoints. **One file per resource** (e.g. `PostsEndpointsTests`), grouped internally by HTTP verb. Everything that's observable at the API boundary — CRUD, ETag conditional requests, soft-delete behaviour — lives in that single file, next to the verb it concerns. Don't split out per-concern files (no `PostsEtagTests`, no `PostsSoftDeleteTests`); see [`PostsEndpointsTests`](../../../apps/api/tests/Api.Tests.Integration/PostsEndpointsTests.cs) for the layout. The exception is concerns that *bypass* the API — e.g. DB-level safety nets that simulate non-EF writers — which belong in their own file like [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) (different boundary, different file). For `ISoftDeletable` entities, prove from the API that the row survives + the query filter hides it (peek with `IgnoreQueryFilters()`) — `PostsEndpointsTests.Delete_KeepsRowInDb_WithDeletedAtPopulated` is the pattern. **Per-test cleanup must use `IgnoreQueryFilters()`** when calling `ExecuteDeleteAsync()` on soft-deletable tables, otherwise soft-deleted rows from previous tests accumulate.
 
 `Program` is a `public partial class` solely so `WebApplicationFactory<Program>` can reach it from the integration test project. **Do not delete that declaration** at the bottom of `Program.cs`.
+
+### ETags & conditional requests
+
+Single-resource endpoints over `ITimestamped` entities follow RFC 7232. The pattern (see [`PostsEndpoints`](../../../apps/api/src/Api/Features/Posts/PostsEndpoints.cs) for a worked example):
+
+- **GET `/<resource>/{id}`** — always set the `ETag` response header. Honour `If-None-Match` and return `304 Not Modified` (empty body) on match.
+- **POST `/<resource>`** — set `ETag` on the `201 Created` response so the client can use it for subsequent writes without a round trip.
+- **PUT / DELETE `/<resource>/{id}`** — require `If-Match`. Return `428 Precondition Required` when the header is absent, `412 Precondition Failed` (with the current ETag on the response) when it doesn't match. On success, set the new `ETag` on the response.
+
+The two helpers do all the work:
+
+```csharp
+// GET /<resource>/{id}
+var etag = ETag.From(entity);
+if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
+{
+    return notModified;
+}
+return Results.Ok(entity.ToResponse());
+
+// PUT / DELETE /<resource>/{id}
+if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditionFailure)
+{
+    return preconditionFailure;
+}
+// ... apply the change, then:
+ConditionalRequest.SetETagHeader(http, ETag.From(entity));
+```
+
+**Order of checks** (mirror this in your endpoint):
+
+1. Request body validation (400) — no point checking preconditions on a malformed request.
+2. Resource lookup (404) — no point checking preconditions on a non-existent resource.
+3. `EvaluateWrite` (428 / 412) — precondition check.
+4. Apply the change, refresh the ETag header on the response.
+
+Why a strong tag from `UpdatedAt`? `AuditInterceptor` truncates `UpdatedAt` to microsecond precision so the in-memory value matches what Postgres stores in `timestamptz`. That stability is what makes the tag round-trip cleanly — without it, `If-Match` would always fail on the next request. Weak tags are explicitly forbidden for `If-Match` (RFC 7232 §3.1) so strong is the only option for the write path.
+
+Collection endpoints (`GET /<resource>`) intentionally don't emit ETags — collection state is much harder to summarise cheaply, and the boilerplate doesn't need it yet.
+
+When you add a new single-resource endpoint, **integration tests must cover** at minimum: `ETag` present on GET/POST/PUT, `304` on matching `If-None-Match`, `428` on PUT/DELETE without `If-Match`, `412` on PUT/DELETE with a stale `If-Match`. These tests live alongside the resource's CRUD tests in one file per resource — [`PostsEndpointsTests`](../../../apps/api/tests/Api.Tests.Integration/PostsEndpointsTests.cs) is the reference layout (tests grouped by verb, ETag scenarios next to their CRUD counterparts).
 
 ### Running the API locally
 
@@ -89,13 +131,15 @@ dotnet run --project apps/api/src/Api
 
 ```powershell
 # Bind to a random free port. ASP.NET prints the bound URL to stdout.
-dotnet run --project apps/api/src/Api --urls "http://localhost:0"
+# Use 127.0.0.1, NOT localhost — Kestrel rejects `localhost:0` with
+# "Dynamic port binding is not supported when binding to localhost".
+dotnet run --project apps/api/src/Api --urls "http://127.0.0.1:0"
 ```
 
 After launch you'll see something like:
 
 ```
-Now listening on: http://localhost:54321
+Now listening on: http://127.0.0.1:54321
 ```
 
 Grab that port and use it for the rest of the validation steps. Kill the server with Ctrl+C when done.
@@ -142,6 +186,15 @@ You can skip writing a test only if you can explain *why* the change is genuinel
 | **Integration** | `Api.Tests.Integration/` | Real ASP.NET host via `WebApplicationFactory<Program>` over `HttpClient` | Endpoint contracts, middleware, DI wiring, eventually DB-backed flows |
 
 When real dependencies land (Postgres, etc.), spin them up via [Testcontainers](https://dotnet.testcontainers.org/) inside the integration test project. Do **not** mock the database with `EF Core In-Memory` or hand-rolled fakes — mocks drift from production behavior. Reference existing integration tests in `Api.Tests.Integration/` for the established patterns.
+
+### Test files: one per boundary, not per concern
+
+Integration tests are organised by the boundary they exercise, not by the cross-cutting concern they cover:
+
+- **One file per API resource.** `PostsEndpointsTests` owns every behaviour that's observable at the `/posts` boundary — CRUD, ETag preconditions, soft-delete visibility, validation, the lot. Group tests inside the file by HTTP verb (`GET /posts`, `GET /posts/{id}`, `POST`, `PUT`, `DELETE`) so each endpoint's full contract reads top-to-bottom. Resist the urge to split out `PostsEtagTests`, `PostsValidationTests`, `PostsSoftDeleteTests` — those would scatter related behaviour across files and force a reviewer to grep across multiple files to understand a single endpoint.
+- **Separate file when the boundary is different.** [`TimestampsDbSafetyNetTests`](../../../apps/api/tests/Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) is its own file because it explicitly bypasses the API (and the EF interceptor) to verify guarantees at the *database* boundary — column defaults and UPDATE triggers that protect against non-EF writers. Different boundary → different file. The same applies to anything that tests cross-resource flows, infrastructure setup, etc.
+
+The rule of thumb: ask "what's the boundary I'm asserting against?" If it's the same boundary as an existing file, the test goes in that file.
 
 ### Test code conventions (this repo)
 
@@ -190,9 +243,9 @@ Run all of these in order before `gh pr create`. If any step fails, **fix the is
    Required: `failed: 0`. Note the total test count — if it dropped from the previous run on `main`, explain why.
 4. **App boots clean.** Launch with the random-port override, confirm it starts without errors, then Ctrl+C.
    ```powershell
-   dotnet run --project apps/api/src/Api --urls "http://localhost:0"
+   dotnet run --project apps/api/src/Api --urls "http://127.0.0.1:0"
    ```
-   Required: see `Now listening on: http://localhost:<port>`. No stack traces.
+   Required: see `Now listening on: http://127.0.0.1:<port>`. No stack traces.
 5. **Touched/new endpoints respond as expected.** With the app still running from step 4 (or relaunch), hit each affected endpoint and capture the response.
    ```powershell
    Invoke-RestMethod http://localhost:<port>/<your-endpoint>
@@ -207,7 +260,7 @@ Run all of these in order before `gh pr create`. If any step fails, **fix the is
 - **Tests covering this change:** <list of new/modified test files, or "N/A — explain">
 - **Build:** `dotnet build apps/api/Api.slnx --configuration Release` → 0 warnings, 0 errors
 - **Tests:** `dotnet test --solution apps/api/Api.slnx --configuration Release --no-build` → <total> passed, 0 failed
-- **App boot:** `dotnet run --urls "http://localhost:0"` → bound to port <port>, no errors
+- **App boot:** `dotnet run --urls "http://127.0.0.1:0"` → bound to port <port>, no errors
 - **Endpoint check:**
   - `GET /<endpoint>` → <status> + <one-line summary of body>
   - <repeat for each touched endpoint, or "N/A — no endpoint surface change">

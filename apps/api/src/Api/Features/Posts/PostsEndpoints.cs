@@ -19,16 +19,27 @@ public static class PostsEndpoints
             return Results.Ok(posts.Select(p => p.ToResponse()));
         });
 
-        group.MapGet("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
             var post = await db.Posts
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == id, ct);
 
-            return post is null ? Results.NotFound() : Results.Ok(post.ToResponse());
+            if (post is null)
+            {
+                return Results.NotFound();
+            }
+
+            var etag = ETag.From(post);
+            if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
+            {
+                return notModified;
+            }
+
+            return Results.Ok(post.ToResponse());
         });
 
-        group.MapPost("/", async (CreatePostRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPost("/", async (CreatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
             if (ValidateBody(request.Title, request.Content) is { } error)
             {
@@ -39,10 +50,11 @@ public static class PostsEndpoints
             db.Posts.Add(post);
             await db.SaveChangesAsync(ct);
 
+            ConditionalRequest.SetETagHeader(http, ETag.From(post));
             return Results.Created($"/posts/{post.Id}", post.ToResponse());
         });
 
-        group.MapPut("/{id:guid}", async (Guid id, UpdatePostRequest request, AppDbContext db, CancellationToken ct) =>
+        group.MapPut("/{id:guid}", async (Guid id, UpdatePostRequest request, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
             if (ValidateBody(request.Title, request.Content) is { } error)
             {
@@ -55,19 +67,30 @@ public static class PostsEndpoints
                 return Results.NotFound();
             }
 
+            if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
+            {
+                return preconditionFailure;
+            }
+
             post.Title = request.Title;
             post.Content = request.Content;
             await db.SaveChangesAsync(ct);
 
+            ConditionalRequest.SetETagHeader(http, ETag.From(post));
             return Results.Ok(post.ToResponse());
         });
 
-        group.MapDelete("/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (Guid id, HttpContext http, AppDbContext db, CancellationToken ct) =>
         {
             var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
             if (post is null)
             {
                 return Results.NotFound();
+            }
+
+            if (ConditionalRequest.EvaluateWrite(http, ETag.From(post)) is { } preconditionFailure)
+            {
+                return preconditionFailure;
             }
 
             db.Posts.Remove(post);
