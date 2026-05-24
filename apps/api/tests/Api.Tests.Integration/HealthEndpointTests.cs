@@ -1,9 +1,10 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
+using Api.Tests.Integration.Fixtures;
 
 namespace Api.Tests.Integration;
 
-public class HealthEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(IntegrationTestCollection))]
+public class HealthEndpointTests(ApiTestFactory factory)
 {
     private readonly HttpClient _client = factory.CreateClient();
 

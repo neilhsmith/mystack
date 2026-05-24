@@ -1,14 +1,32 @@
+using Api.Data;
+using Api.Posts;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Missing connection string 'DefaultConnection'.");
+
+builder.Services.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(connectionString));
+
 builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"]);
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddNpgSql(connectionString, name: "postgres", tags: ["ready"]);
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+}
+
 app.MapGet("/hello", () => new { message = "hello from mystack" });
+
+app.MapPostsEndpoints();
 
 // Aggregate — runs every registered check.
 app.MapHealthChecks("/health");

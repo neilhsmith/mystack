@@ -4,10 +4,13 @@ A personal full-stack boilerplate. **Currently in v0** — this is a bare skelet
 
 ## Current state
 
-- ASP.NET 10 API at `apps/api/` with `/hello` and `/health` (live/ready/aggregate) endpoints
-- Test projects at `apps/api/tests/Api.Tests.Unit` and `apps/api/tests/Api.Tests.Integration` (xUnit v3, Microsoft Testing Platform). Integration tests use `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing`.
-- Folder skeleton in place for `apps/web`, `packages/`, `infra/`, `tests/`, `scripts/`
-- GitHub Actions PR validation workflow (build + test)
+- ASP.NET 10 API at `apps/api/` with `/hello`, `/health` (live/ready/aggregate), and `/posts` (CRUD) endpoints. Feature-folder layout: `src/Api/Posts/`, `src/Api/Data/`.
+- EF Core 10 + Npgsql provider; `AppDbContext` with `Posts` DbSet. Migrations live in `src/Api/Migrations/` and apply on startup in `Development` env.
+- Postgres via `infra/docker-compose.yml`. Default `docker compose up` (run from `infra/`) brings up only Postgres so the API can run natively. `docker compose --profile full up` brings up the full stack including a built API container.
+- Production-style Dockerfile at `apps/api/src/Api/Dockerfile` (multi-stage, .NET 10 SDK → ASP.NET 10 runtime).
+- Test projects at `apps/api/tests/Api.Tests.Unit` and `apps/api/tests/Api.Tests.Integration` (xUnit v3, Microsoft Testing Platform). Integration tests use `WebApplicationFactory<Program>` + a shared `Testcontainers.PostgreSql` container (`ApiTestFactory`).
+- Folder skeleton in place for `apps/web`, `packages/`, `tests/`, `scripts/`
+- GitHub Actions PR validation workflow (build + test). CI runner has Docker available, so Testcontainers works there too.
 - Shared VS Code config in `.vscode/` (extensions, settings, tasks, launch)
 - This file (CLAUDE.md), README, .editorconfig, .gitignore
 
@@ -36,17 +39,32 @@ These rules govern how agents interact with this repo:
 
 ## Current commands
 
-```bash
-# Run the API
+```powershell
+# --- Infra (Postgres) ---
+# Bring Postgres up (run from infra/). Persists in volume `mystack_postgres-data`.
+cd infra; docker compose up -d
+
+# Bring the FULL stack up (API container + Postgres)
+cd infra; docker compose --profile full up -d --build
+
+# Tear down (keeps volume)
+cd infra; docker compose down
+
+# Tear down + drop the volume (DESTROYS DB STATE)
+cd infra; docker compose down -v
+
+# --- API ---
+# Run the API natively (Development env reads connection string from appsettings.Development.json)
 dotnet run --project apps/api/src/Api
 
 # Build everything
 dotnet build apps/api/Api.slnx
 
-# Run all tests (unit + integration)
+# --- Tests ---
+# Run all tests (unit + integration). Integration tests need Docker running.
 dotnet test --solution apps/api/Api.slnx
 
-# Just unit tests (fast feedback loop)
+# Just unit tests (fast — no Docker needed)
 dotnet test apps/api/tests/Api.Tests.Unit
 
 # Just integration tests
@@ -54,6 +72,16 @@ dotnet test apps/api/tests/Api.Tests.Integration
 
 # With coverage (cobertura XML in TestResults/)
 dotnet test --solution apps/api/Api.slnx --collect:"XPlat Code Coverage"
+
+# --- EF Core migrations ---
+# Add a migration (after model changes)
+dotnet ef migrations add <Name> --project apps/api/src/Api
+
+# Apply migrations against the running dev Postgres (Program also does this on startup in Dev)
+dotnet ef database update --project apps/api/src/Api
+
+# Remove the last unapplied migration
+dotnet ef migrations remove --project apps/api/src/Api
 ```
 
 The `dotnet test --solution …` form is required for multi-project solutions on the Microsoft Testing Platform runner (configured in `global.json`). For a single project path, omit `--solution`.

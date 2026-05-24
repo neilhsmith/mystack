@@ -1,0 +1,40 @@
+name: mystack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mystack-postgres
+    environment:
+      POSTGRES_USER: mystack
+      POSTGRES_PASSWORD: mystack
+      POSTGRES_DB: mystack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mystack -d mystack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # API container — opt-in via `docker compose --profile full up`.
+  # Default `docker compose up` brings up only infra so you can run the API
+  # natively (`dotnet run` / `dotnet watch`) for a fast inner dev loop.
+  api:
+    profiles: [full]
+    build:
+      context: ../apps/api
+      dockerfile: src/Api/Dockerfile
+    container_name: mystack-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=mystack;Username=mystack;Password=mystack"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
