@@ -26,13 +26,13 @@ namespace Api.Data.Migrations
                     table.PrimaryKey("PK_Posts", x => x.Id);
                 });
 
-            // Trigger function used by every IHasTimestamps table. Defined once here; future
+            // Trigger function used by every ITimestamped table. Defined once here; future
             // entities just need their own CREATE TRIGGER referencing this function (see the
             // "Adding a new entity" checklist in .claude/skills/backend-dev/SKILL.md).
             //
             // Behavior:
             //   - CreatedAt is locked: never modifiable via UPDATE.
-            //   - UpdatedAt: if the writer changed it (e.g., EF + TimestampsInterceptor),
+            //   - UpdatedAt: if the writer changed it (e.g., EF + AuditInterceptor),
             //     leave their value alone — app time stays authoritative for normal flow.
             //     If the writer didn't touch it (raw SQL UPDATE, future serverless worker,
             //     etc.), stamp it with now() so the column doesn't go stale.

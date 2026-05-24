@@ -18,6 +18,16 @@ One Postgres container per test-assembly run, shared across all integration test
 
 Per-test data reset happens in each test class's `IAsyncLifetime.InitializeAsync` via `ExecuteDeleteAsync()` on the relevant tables — see [`PostsEndpointsTests`](Api.Tests.Integration/PostsEndpointsTests.cs) for the pattern.
 
+> **Soft delete cleanup gotcha:** for any `ISoftDeletable` table, the cleanup must use `.IgnoreQueryFilters().ExecuteDeleteAsync()` — otherwise soft-deleted rows from previous tests are hidden by the global query filter and never get wiped, accumulating across runs.
+
+## Test classes
+
+- [`HelloEndpointTests`](Api.Tests.Integration/HelloEndpointTests.cs) — smoke test of `/hello`.
+- [`HealthEndpointTests`](Api.Tests.Integration/HealthEndpointTests.cs) — `/health`, `/health/live`, `/health/ready` (the last exercises the Postgres ready check).
+- [`PostsEndpointsTests`](Api.Tests.Integration/PostsEndpointsTests.cs) — CRUD happy paths, 404s, 400s for validation, "no side effect on rejected input" assertions.
+- [`SoftDeleteTests`](Api.Tests.Integration/SoftDeleteTests.cs) — soft delete is observable as 404 + hidden from `GET /posts`, but the row persists with `DeletedAt` populated (verified via `IgnoreQueryFilters()`).
+- [`TimestampsDbSafetyNetTests`](Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) — bypasses the interceptor with raw SQL to prove the DB-level safety net (column defaults + UPDATE trigger) does what it says when non-EF writers come along.
+
 ## Run
 
 ```powershell
