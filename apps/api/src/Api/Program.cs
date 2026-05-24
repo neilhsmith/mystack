@@ -1,9 +1,11 @@
+using System.Threading.RateLimiting;
 using Api.Data;
 using Api.Features.Posts;
 using Api.Http;
 using Api.Validation;
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -44,6 +46,49 @@ builder.Services.AddProblemDetails(options =>
     };
 });
 
+// Per-IP fixed-window rate limiter applied globally. Defaults intentionally strict
+// (appsettings.json: 100/min) so the boilerplate is safe out of the box; dev/test get
+// a lenient override via appsettings.Development.json. Health endpoints exempt — k8s/LB
+// probes shouldn't be throttled. Rejected requests get RFC 7807 problem+json (same
+// customizer as everything else) plus the Retry-After header per RFC 9110 §10.2.3.
+builder.Services.AddRateLimiter(options =>
+{
+    var permitLimit = builder.Configuration.GetValue<int?>("RateLimiting:PermitLimit") ?? 100;
+    var windowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:WindowSeconds") ?? 60;
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        if (context.Request.Path.StartsWithSegments("/health"))
+        {
+            return RateLimitPartition.GetNoLimiter("health-exempt");
+        }
+
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = permitLimit,
+            Window = TimeSpan.FromSeconds(windowSeconds),
+            QueueLimit = 0,
+            AutoReplenishment = true,
+        });
+    });
+
+    options.OnRejected = async (context, token) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)retryAfter.TotalSeconds).ToString();
+        }
+
+        await Results.Problem(
+                statusCode: StatusCodes.Status429TooManyRequests,
+                title: "Too Many Requests",
+                detail: "Rate limit exceeded. Try again later.")
+            .ExecuteAsync(context.HttpContext);
+    };
+});
+
 // OpenAPI: native ASP.NET 10 generator. The schema transformer reflects FluentValidation
 // rules into the spec so the published contract advertises the same constraints the
 // runtime enforces (see FluentValidationSchemaTransformer for the mapping).
@@ -74,6 +119,9 @@ app.UseExceptionHandler();
 // Results.StatusCode(503)) and wraps them in problem+json too. Won't disturb handlers
 // that already wrote a body (validation 400s, our 412 / 428 ProblemHttpResults, …).
 app.UseStatusCodePages();
+// Rate limiter runs after the error-shaping middleware so 429 rejections flow through
+// the same ProblemDetails pipeline as everything else (traceId, problem+json shape).
+app.UseRateLimiter();
 
 // /openapi/v1.json — machine-readable spec. Available in all environments so client
 // codegen and integration tests can rely on it; gate per-environment if that ever changes.
