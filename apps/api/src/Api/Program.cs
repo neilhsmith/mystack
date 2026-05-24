@@ -19,8 +19,7 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions
     Predicate = check => check.Tags.Contains("live"),
 });
 
-// Readiness — can the app serve traffic? Currently nothing to check; DB/cache checks
-// will be registered with tag "ready" as dependencies are added (see PR #2 roadmap).
+// Readiness — can the app serve traffic? Pull from load balancer if this fails.
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
