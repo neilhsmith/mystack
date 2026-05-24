@@ -21,6 +21,14 @@ public partial class PostMapper
 {
     public partial PostResponse ToResponse(Post source);
 
+    // The [MapperIgnoreTarget] attributes on ToEntity / Apply are LOAD-BEARING, not
+    // warning suppressors. With RequiredMappingStrategy.Target, Mapperly emits an
+    // assignment for every settable property on the target unless explicitly ignored.
+    // Without these ignores, ToEntity would zero out Id (overwriting Guid.CreateVersion7())
+    // and Apply would zero out CreatedAt/UpdatedAt/DeletedAt on every PUT, breaking
+    // timestamps, soft-delete, and ETags. Add a new ignore for every framework-managed
+    // field you add to Post — `xmin` is a shadow property so it doesn't need one.
+
     [MapperIgnoreTarget(nameof(Post.Id))]
     [MapperIgnoreTarget(nameof(Post.CreatedAt))]
     [MapperIgnoreTarget(nameof(Post.UpdatedAt))]
