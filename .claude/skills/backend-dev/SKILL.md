@@ -74,6 +74,8 @@ For new endpoints you add, hit them with realistic input and confirm the respons
 
 ## 2 — Test discipline
 
+> **How** to write good tests (red-green-refactor loop, behavior vs implementation, when to mock) lives in the [`tdd`](../tdd/SKILL.md) skill. This section covers **where** tests live and **when** they must be added in this repo.
+
 **The rule: behavior changes require test changes.** Concretely:
 
 - Added a new endpoint? → integration test for it in `apps/api/tests/Api.Tests.Integration/`.

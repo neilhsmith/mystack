@@ -83,4 +83,6 @@ Skills live under `.claude/skills/`, one folder per skill, each with a `SKILL.md
 
 Currently available:
 
-- [`backend-dev`](.claude/skills/backend-dev/SKILL.md) — workflow for tasks touching `apps/api/`. **Required for any backend PR** (see workflow rule #9 above).
+- [`backend-dev`](.claude/skills/backend-dev/SKILL.md) — workflow for tasks touching `apps/api/`. **Required for any backend PR** (see workflow rule #9 above). Project-specific: where tests live, how to launch the app on a free port, the mandatory pre-PR checklist.
+- [`tdd`](.claude/skills/tdd/SKILL.md) — general TDD philosophy and workflow (red-green-refactor, vertical slices, what makes a good test, when to mock). Cross-language guidance; examples are C#/xUnit. Use whenever you're writing tests, regardless of stack.
+- [`zoom-out`](.claude/skills/zoom-out/SKILL.md) — user-invoked only (`disable-model-invocation: true`). Use when you (the human) want the agent to step back and map an unfamiliar area at a higher level of abstraction before diving in.
