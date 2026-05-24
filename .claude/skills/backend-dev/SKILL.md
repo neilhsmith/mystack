@@ -102,7 +102,7 @@ if (ConditionalRequest.EvaluateRead(http, etag) is { } notModified)
 {
     return notModified;
 }
-return Results.Ok(entity.ToResponse());
+return TypedResults.Ok(entity.ToResponse());
 
 // PUT / DELETE /<resource>/{id}
 if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditionFailure)
@@ -112,6 +112,17 @@ if (ConditionalRequest.EvaluateWrite(http, ETag.From(entity)) is { } preconditio
 // ... apply the change, then:
 ConditionalRequest.SetETagHeader(http, ETag.From(entity));
 ```
+
+**Always pair the runtime helper with the OpenAPI marker** so the published contract matches what the runtime does. Three extensions in [`ConditionalRequestOpenApi`](../../../apps/api/src/Api/Data/ConditionalRequestOpenApi.cs):
+
+```csharp
+group.MapGet("/{id:guid}",   GetById).Produces(304).WithConditionalRead();
+group.MapPost("/",           Create).WithEtagResponseHeader();
+group.MapPut("/{id:guid}",   Update).WithConditionalWrite();
+group.MapDelete("/{id:guid}", Delete).WithConditionalWrite();
+```
+
+The operation transformer reads the marker and stamps the spec with `ETag` response headers on the right status codes (200/201/304/412 depending on kind) and the `If-Match` / `If-None-Match` request parameters. Forgetting the marker means a future TS client won't know it can send those headers — `OpenApiSpecTests` is the regression guard.
 
 **Order of checks** (mirror this in your endpoint):
 

@@ -15,23 +15,27 @@ public static class PostsEndpoints
 
         group.MapGet("/{id:guid}", GetById)
             // 304 isn't carried by StatusCodeHttpResult's static metadata; advertise it explicitly.
-            .Produces(StatusCodes.Status304NotModified);
+            .Produces(StatusCodes.Status304NotModified)
+            .WithConditionalRead();
 
         group.MapPost("/", Create)
             .AddEndpointFilter<ValidationEndpointFilter<CreatePostRequest>>()
             // The validation filter — not the handler — produces the 400. Advertise it here.
-            .ProducesValidationProblem();
+            .ProducesValidationProblem()
+            .WithEtagResponseHeader();
 
         group.MapPut("/{id:guid}", Update)
             .AddEndpointFilter<ValidationEndpointFilter<UpdatePostRequest>>()
             .ProducesValidationProblem()
             // ProblemHttpResult only declares 500 statically; declare the codes we actually return.
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
-            .ProducesProblem(StatusCodes.Status428PreconditionRequired);
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .WithConditionalWrite();
 
         group.MapDelete("/{id:guid}", Delete)
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
-            .ProducesProblem(StatusCodes.Status428PreconditionRequired);
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .WithConditionalWrite();
 
         return app;
     }

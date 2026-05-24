@@ -36,6 +36,10 @@ builder.Services.AddSingleton<PostMapper>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<FluentValidationSchemaTransformer>();
+    // Emits ETag response headers and If-Match / If-None-Match request parameters
+    // for endpoints marked with .WithConditionalRead() / .WithConditionalWrite() /
+    // .WithEtagResponseHeader() — see ConditionalRequestOpenApi.cs.
+    options.AddOperationTransformer<ConditionalRequestOperationTransformer>();
 });
 
 var app = builder.Build();
