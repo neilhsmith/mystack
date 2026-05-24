@@ -1,0 +1,15 @@
+{
+  "dotnet.defaultSolution": "apps/api/Api.slnx",
+  "dotnet.unitTests.runSettingsPath": "",
+  "dotnet.unitTestDebuggingOptions": {
+    "console": "internalConsole"
+  },
+  "[csharp]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true
+  }
+}

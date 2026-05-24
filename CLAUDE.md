@@ -4,9 +4,11 @@ A personal full-stack boilerplate. **Currently in v0** — this is a bare skelet
 
 ## Current state
 
-- ASP.NET 10 API at `apps/api/` with a single `/hello` endpoint
+- ASP.NET 10 API at `apps/api/` with `/hello` and `/health` (live/ready/aggregate) endpoints
+- Test projects at `apps/api/tests/Api.Tests.Unit` and `apps/api/tests/Api.Tests.Integration` (xUnit v3, Microsoft Testing Platform). Integration tests use `WebApplicationFactory<Program>` from `Microsoft.AspNetCore.Mvc.Testing`.
 - Folder skeleton in place for `apps/web`, `packages/`, `infra/`, `tests/`, `scripts/`
-- GitHub Actions PR validation workflow
+- GitHub Actions PR validation workflow (build + test)
+- Shared VS Code config in `.vscode/` (extensions, settings, tasks, launch)
 - This file (CLAUDE.md), README, .editorconfig, .gitignore
 
 ## Planned (not yet built)
@@ -39,9 +41,31 @@ dotnet run --project apps/api/src/Api
 
 # Build everything
 dotnet build apps/api/Api.slnx
+
+# Run all tests (unit + integration)
+dotnet test --solution apps/api/Api.slnx
+
+# Just unit tests (fast feedback loop)
+dotnet test apps/api/tests/Api.Tests.Unit
+
+# Just integration tests
+dotnet test apps/api/tests/Api.Tests.Integration
+
+# With coverage (cobertura XML in TestResults/)
+dotnet test --solution apps/api/Api.slnx --collect:"XPlat Code Coverage"
 ```
 
+The `dotnet test --solution …` form is required for multi-project solutions on the Microsoft Testing Platform runner (configured in `global.json`). For a single project path, omit `--solution`.
+
 More commands will be added as the stack grows.
+
+## Testing conventions
+
+- **Unit tests** (`apps/api/tests/Api.Tests.Unit/`): pure in-process tests of individual classes/functions. No I/O, no DI container boot, no HTTP. Add tests here as services, validators, handlers etc. land in `src/Api/`.
+- **Integration tests** (`apps/api/tests/Api.Tests.Integration/`): boot the real ASP.NET host via `WebApplicationFactory<Program>` and exercise the app end-to-end over `HttpClient`. When real dependencies (DB, queues, etc.) get added, prefer [Testcontainers](https://dotnet.testcontainers.org/) over mocks/in-memory fakes.
+- `Program` is a `public partial class` purely so `WebApplicationFactory<Program>` can reach it from the integration test project. Don't delete that declaration.
+- Use xUnit `[Theory]` + `[InlineData]` for table-driven tests (see `HealthEndpointTests`).
+- When awaiting `HttpClient` (or anything that takes a `CancellationToken`) in a test, pass `TestContext.Current.CancellationToken` — the xUnit analyzer warns otherwise.
 
 ## Things never to do (current list — will grow)
 

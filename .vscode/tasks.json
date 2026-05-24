@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "apps/api/Api.slnx"],
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "--solution", "apps/api/Api.slnx"],
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "test:unit",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "apps/api/tests/Api.Tests.Unit"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "test:integration",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "apps/api/tests/Api.Tests.Integration"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "test:coverage",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "--solution",
+        "apps/api/Api.slnx",
+        "--collect:XPlat Code Coverage"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "run:api",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "apps/api/src/Api"],
+      "problemMatcher": "$msCompile",
+      "isBackground": true
+    }
+  ]
+}

@@ -26,8 +26,7 @@ jobs:
       - name: Build
         run: dotnet build apps/api/Api.slnx --configuration Release --no-restore
 
-      # Tests will be added once we have test projects
-      # - name: Test
-      #   run: dotnet test apps/api/Api.slnx --configuration Release --no-build
+      - name: Test
+        run: dotnet test --solution apps/api/Api.slnx --configuration Release --no-build
 
   # Node lint/typecheck/test will be added in a future PR when web/ exists
