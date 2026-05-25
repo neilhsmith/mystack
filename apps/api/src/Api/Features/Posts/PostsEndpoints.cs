@@ -102,7 +102,7 @@ public static class PostsEndpoints
         }
 
         mapper.Apply(request, post);
-        if (await TryConcurrentSaveAsync(db, http, id, ct) is { } concurrencyFailure)
+        if (await ConcurrentSave.TryAsync<Post>(db, http, id, ct) is { } concurrencyFailure)
         {
             return concurrencyFailure;
         }
@@ -126,44 +126,11 @@ public static class PostsEndpoints
         }
 
         db.Posts.Remove(post);
-        if (await TryConcurrentSaveAsync(db, http, id, ct) is { } concurrencyFailure)
+        if (await ConcurrentSave.TryAsync<Post>(db, http, id, ct) is { } concurrencyFailure)
         {
             return concurrencyFailure;
         }
 
         return TypedResults.NoContent();
-    }
-
-    /// <summary>
-    /// Catches the race where another writer bumped xmin between this request's load and
-    /// save. The If-Match check earlier guards against the client supplying a stale tag;
-    /// this guards against a stale tag being introduced server-side by a concurrent writer.
-    /// Both surface as 412 Precondition Failed, with the current ETag on the response so
-    /// the client can refetch and retry.
-    /// </summary>
-    private static async Task<ProblemHttpResult?> TryConcurrentSaveAsync(
-        AppDbContext db, HttpContext http, Guid id, CancellationToken ct)
-    {
-        try
-        {
-            await db.SaveChangesAsync(ct);
-            return null;
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // Detach the stale entry and refetch — needs tracking (no AsNoTracking) so
-            // ETag.From(db, current) can read the xmin shadow property off the change tracker.
-            // If the row was hard-deleted or soft-deleted concurrently, the refetch returns
-            // null (the global query filter hides soft-deleted rows) and we omit the ETag.
-            db.ChangeTracker.Clear();
-            var current = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
-            if (current is not null)
-            {
-                ConditionalRequest.SetETagHeader(http, ETag.From(db, current));
-            }
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status412PreconditionFailed,
-                title: "Resource was modified by another writer.");
-        }
     }
 }

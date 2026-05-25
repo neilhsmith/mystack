@@ -105,7 +105,7 @@ Single-resource endpoints follow RFC 7232. The pattern (see [`PostsEndpoints`](.
 
 - **GET `/<resource>/{id}`** — always set the `ETag` response header. Honour `If-None-Match` and return `304 Not Modified` (empty body) on match. Load the entity **tracked** (no `AsNoTracking`) so `ETag.From(db, entity)` can read the `xmin` shadow property via the change tracker.
 - **POST `/<resource>`** — set `ETag` on the `201 Created` response so the client can use it for subsequent writes without a round trip.
-- **PUT / DELETE `/<resource>/{id}`** — require `If-Match`. Return `428 Precondition Required` when the header is absent, `412 Precondition Failed` (with the current ETag on the response) when it doesn't match. On success, set the new `ETag` on the response. Wrap the `SaveChangesAsync` in the local `TryConcurrentSaveAsync` pattern to catch the race where another writer bumps `xmin` between this request's load and save — also surfaces as 412 with the current ETag.
+- **PUT / DELETE `/<resource>/{id}`** — require `If-Match`. Return `428 Precondition Required` when the header is absent, `412 Precondition Failed` (with the current ETag on the response) when it doesn't match. On success, set the new `ETag` on the response. Wrap the `SaveChangesAsync` in [`ConcurrentSave.TryAsync<TEntity>`](../../../apps/api/src/Api/Http/ConcurrentSave.cs) to catch the race where another writer bumps `xmin` between this request's load and save — also surfaces as 412 with the current ETag.
 
 The two helpers do all the work:
 
@@ -124,7 +124,7 @@ if (ConditionalRequest.EvaluateWrite(http, ETag.From(db, entity)) is { } precond
     return preconditionFailure;
 }
 // ... apply the change, then save with concurrency-race protection:
-if (await TryConcurrentSaveAsync(db, http, id, ct) is { } concurrencyFailure)
+if (await ConcurrentSave.TryAsync<Post>(db, http, id, ct) is { } concurrencyFailure)
 {
     return concurrencyFailure;
 }
@@ -152,7 +152,7 @@ Forgetting the marker itself means a future TS client won't know it can send tho
 1. Request body validation (400) — handled by `ValidationEndpointFilter<TRequest>` via `.AddEndpointFilter<...>()`. Runs before the handler body, so a malformed request never reaches the resource lookup.
 2. Resource lookup (404) — no point checking preconditions on a non-existent resource.
 3. `EvaluateWrite` (428 / 412 from a stale client tag) — precondition check before the write.
-4. Apply the change, save via `TryConcurrentSaveAsync` (412 if another writer raced in), refresh the ETag header on the response.
+4. Apply the change, save via `ConcurrentSave.TryAsync<TEntity>` (412 if another writer raced in), refresh the ETag header on the response.
 
 Why a strong tag from `xmin`? `xmin` is Postgres's per-row transaction-id rowversion — bumped on every UPDATE, distinct per write, monotonic, and provider-managed (no migration to keep in sync). EF tracks it as a shadow concurrency token so a single value drives both the HTTP `If-Match` check at the handler boundary AND the DB-level optimistic-concurrency throw on `SaveChanges` — the two checks can never disagree. Weak tags are explicitly forbidden for `If-Match` (RFC 7232 §3.1) so strong is the only option for the write path. The wire format is the `xmin` value as 8 hex characters wrapped in quotes — e.g. `"000002FC"`.
 
