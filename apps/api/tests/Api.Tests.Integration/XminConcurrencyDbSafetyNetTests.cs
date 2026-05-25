@@ -12,12 +12,12 @@ namespace Api.Tests.Integration;
 /// Tests bypass the HTTP layer and drive <c>DbContext</c> directly so they prove the
 /// schema/convention is configured correctly, independent of any single endpoint's wiring.
 /// <para>
-/// The HTTP-level catch in <c>Api.Http.ConcurrentSave.TryAsync</c> (which turns
-/// <see cref="DbUpdateConcurrencyException"/> into 412 with the current ETag) is not
-/// directly tested — exercising it requires injecting a concurrent write between the
-/// handler's load and save in the same request, which needs a synchronization seam the
-/// production code doesn't expose. The catch block is small and reviewable; the
-/// mechanism it depends on is verified here.
+/// The HTTP-level mapping — <c>Api.Http.DbUpdateConcurrencyExceptionHandler</c> turning the
+/// exception into 409 problem+json — is covered separately by <c>ProblemDetailsTests</c>
+/// via the <c>/v1/diagnostics/throw-concurrency</c> probe. End-to-end injection of a
+/// concurrent write between a real handler's load and save would need a synchronization
+/// seam the production code intentionally doesn't expose; splitting the proof in two
+/// (mechanism here, mapping there) covers the same ground without that seam.
 /// </para>
 /// </summary>
 [Collection(nameof(IntegrationTestCollection))]
