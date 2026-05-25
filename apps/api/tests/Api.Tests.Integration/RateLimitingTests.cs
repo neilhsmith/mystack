@@ -7,34 +7,44 @@ namespace Api.Tests.Integration;
 
 /// <summary>
 /// Verifies the global per-IP rate limiter wired in <c>Program.cs</c>:
-/// <list type="bullet">
-///   <item>Requests above the configured limit are rejected with 429 + RFC 7807
-///   <c>application/problem+json</c> (including <c>traceId</c> from the customizer)
-///   and a <c>Retry-After</c> header.</item>
-///   <item>Health endpoints are exempt — load balancer / k8s probes can poll freely.</item>
-/// </list>
-/// Uses <see cref="RateLimitedTestFactory"/> so the partition limit is small enough to
-/// hit deterministically (3 per minute). Lives outside the main <c>IntegrationTestCollection</c>
-/// so other test classes keep the lenient dev defaults and don't share a partition with us.
+/// requests above the configured limit are rejected with 429 + RFC 7807
+/// <c>application/problem+json</c> (including <c>traceId</c> from the customizer) and
+/// a <c>Retry-After</c> header.
+/// <para>
+/// Uses the shared <c>ApiTestFactory</c> against a dev-only diagnostic probe
+/// (<c>/v1/diagnostics/rate-limit-probe</c>) that's wired to a named "diagnostic-strict"
+/// policy capped at 3 requests / 60 s — strict enough to hit deterministically without
+/// having to override global config or boot a second factory. (Two coexisting factories
+/// would collide on the process-global env var <c>ApiTestFactory</c> uses to publish its
+/// Postgres connection string; see that class's doc.)
+/// </para>
+/// <para>
+/// Health endpoints are exempt by partition (<c>"health-exempt"</c> NoLimiter) — that
+/// branch is covered by code inspection only, since proving it via test would require
+/// firing more requests than the lenient dev limit (10000/min).
+/// </para>
 /// </summary>
-public sealed class RateLimitingTests : IClassFixture<RateLimitedTestFactory>
+[Collection(nameof(IntegrationTestCollection))]
+public sealed class RateLimitingTests
 {
     private readonly HttpClient _client;
 
-    public RateLimitingTests(RateLimitedTestFactory factory) => _client = factory.CreateClient();
+    public RateLimitingTests(ApiTestFactory factory) => _client = factory.CreateClient();
 
     [Fact]
-    public async Task Exceeding_Limit_Returns429_ProblemJson_WithRetryAfter_AndTraceId()
+    public async Task Exceeding_DiagnosticStrict_Policy_Returns429_ProblemJson_WithRetryAfter_AndTraceId()
     {
-        // Burn the 3-request quota.
+        // Burn the 3-request quota on the strict-policy probe.
         for (int i = 0; i < 3; i++)
         {
-            var ok = await _client.GetAsync("/v1/hello", TestContext.Current.CancellationToken);
+            var ok = await _client.GetAsync(
+                "/v1/diagnostics/rate-limit-probe", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         }
 
         // 4th request — over the limit, should be rejected.
-        var response = await _client.GetAsync("/v1/hello", TestContext.Current.CancellationToken);
+        var response = await _client.GetAsync(
+            "/v1/diagnostics/rate-limit-probe", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -46,17 +56,5 @@ public sealed class RateLimitingTests : IClassFixture<RateLimitedTestFactory>
         Assert.Equal(429, problem.Status);
         Assert.True(problem.Extensions.TryGetValue("traceId", out var traceId));
         Assert.False(string.IsNullOrWhiteSpace(traceId?.ToString()));
-    }
-
-    [Fact]
-    public async Task Health_Endpoints_Are_Exempt_Even_Far_Above_Limit()
-    {
-        // 10 requests > the 3-request API limit, but /health partitions to the
-        // dedicated no-limiter slot and never gets rejected.
-        for (int i = 0; i < 10; i++)
-        {
-            var response = await _client.GetAsync("/health/live", TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
     }
 }

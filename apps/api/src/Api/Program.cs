@@ -73,6 +73,18 @@ builder.Services.AddRateLimiter(options =>
         });
     });
 
+    // Named policy used by the dev-only /v1/diagnostics/rate-limit-probe endpoint, so the
+    // integration test can deterministically trip the limiter without the test factory
+    // having to override global config. Applies on TOP of the global limiter (whichever
+    // is stricter trips first), so an integration test fires 4 requests and gets 429.
+    options.AddFixedWindowLimiter("diagnostic-strict", o =>
+    {
+        o.PermitLimit = 3;
+        o.Window = TimeSpan.FromSeconds(60);
+        o.QueueLimit = 0;
+        o.AutoReplenishment = true;
+    });
+
     options.OnRejected = async (context, token) =>
     {
         if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
@@ -138,12 +150,17 @@ v1.MapGet("/hello", () => new { message = "hello from mystack" });
 
 v1.MapPostsEndpoints();
 
-// Dev-only probe so integration tests (and humans curling locally) can verify the
-// exception → problem+json pipeline end-to-end. Never registered in Production.
+// Dev-only diagnostic probes so integration tests (and humans curling locally) can
+// verify cross-cutting infrastructure end-to-end. Never registered in Production.
 if (app.Environment.IsDevelopment())
 {
     v1.MapGet("/diagnostics/throw", static IResult () =>
         throw new InvalidOperationException("Deliberate exception for problem-details probe."));
+
+    // 3 successful requests, then 429 on the 4th — used by RateLimitingTests to verify
+    // the OnRejected handler's response shape (problem+json + traceId + Retry-After).
+    v1.MapGet("/diagnostics/rate-limit-probe", () => Results.Ok(new { ok = true }))
+        .RequireRateLimiting("diagnostic-strict");
 }
 
 // Aggregate — runs every registered check.

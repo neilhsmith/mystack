@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 using Testcontainers.PostgreSql;
 
 namespace Api.Tests.Integration.Fixtures;
@@ -11,13 +10,24 @@ namespace Api.Tests.Integration.Fixtures;
 /// in <see cref="IntegrationTestCollection"/> so the container-start cost is paid once
 /// per assembly run.
 /// <para>
-/// Subclassable: a child factory (e.g. <see cref="RateLimitedTestFactory"/>) can override
-/// <see cref="ConfigureWebHost"/> to layer additional config on top — the per-factory
-/// in-memory config below replaced an older process-global env-var hack so two factories
-/// can coexist in the same test run without trampling each other's connection strings.
+/// The connection string is published as a process env var (<c>ConnectionStrings__DefaultConnection</c>)
+/// in <see cref="InitializeAsync"/>. This deliberately uses a process-global side effect:
+/// <c>WebApplicationFactory.ConfigureWebHost</c>'s <c>ConfigureAppConfiguration</c> callback
+/// doesn't propagate to a minimal-API <see cref="WebApplicationBuilder"/>'s frozen config
+/// chain (see <see href="https://github.com/dotnet/aspnetcore/issues/45563"/>), so the
+/// in-memory provider approach silently fails — the JSON default <c>localhost:5432</c>
+/// wins and tests connect to whatever DB happens to be listening there (your dev compose
+/// in the best case, nothing in CI). The env var is read by ASP.NET's default
+/// <c>EnvironmentVariablesConfigurationProvider</c> when the host builds, so it wins.
+/// </para>
+/// <para>
+/// Implication: only one <see cref="ApiTestFactory"/> may be alive in the test process
+/// at a time — keep it sealed. If a future test needs different config (e.g. tighter
+/// rate-limit policy), apply it per-endpoint via a named policy / diagnostic probe rather
+/// than spinning up a sibling factory.
 /// </para>
 /// </summary>
-public class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
+public sealed class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("mystack")
@@ -27,7 +37,15 @@ public class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public string ConnectionString => _postgres.GetConnectionString();
 
-    public async ValueTask InitializeAsync() => await _postgres.StartAsync();
+    public async ValueTask InitializeAsync()
+    {
+        await _postgres.StartAsync();
+
+        // See class doc for why this is an env var rather than an in-memory config provider.
+        Environment.SetEnvironmentVariable(
+            "ConnectionStrings__DefaultConnection",
+            _postgres.GetConnectionString());
+    }
 
     public override async ValueTask DisposeAsync()
     {
@@ -40,17 +58,5 @@ public class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Force Development so Program.cs applies EF migrations on startup
         // against the test container.
         builder.UseEnvironment("Development");
-
-        // Inject the container's connection string scoped to this factory. Lambda is
-        // evaluated lazily when the host is built (after InitializeAsync has started
-        // the container), so `_postgres.GetConnectionString()` returns a valid value.
-        // Per-factory rather than process-global — see class doc.
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:DefaultConnection"] = _postgres.GetConnectionString(),
-            });
-        });
     }
 }
