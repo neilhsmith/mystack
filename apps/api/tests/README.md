@@ -22,11 +22,13 @@ Per-test data reset happens in each test class's `IAsyncLifetime.InitializeAsync
 
 ## Test classes
 
-- [`HelloEndpointTests`](Api.Tests.Integration/HelloEndpointTests.cs) — smoke test of `/hello`.
+- [`HelloEndpointTests`](Api.Tests.Integration/HelloEndpointTests.cs) — smoke test of `/v1/hello`.
 - [`HealthEndpointTests`](Api.Tests.Integration/HealthEndpointTests.cs) — `/health`, `/health/live`, `/health/ready` (the last exercises the Postgres ready check).
-- [`PostsEndpointsTests`](Api.Tests.Integration/PostsEndpointsTests.cs) — CRUD happy paths, 404s, 400s for validation, "no side effect on rejected input" assertions.
-- [`SoftDeleteTests`](Api.Tests.Integration/SoftDeleteTests.cs) — soft delete is observable as 404 + hidden from `GET /posts`, but the row persists with `DeletedAt` populated (verified via `IgnoreQueryFilters()`).
+- [`PostsEndpointsTests`](Api.Tests.Integration/PostsEndpointsTests.cs) — full Posts contract: CRUD happy paths, 404s, validation 400s with "no side effect on rejected input" assertions, RFC 7232 conditional-request semantics (ETag on responses, 304 on `If-None-Match`, 428/412 on missing/stale `If-Match` for writes), and soft-delete observability (404 + hidden from list, row persists with `DeletedAt` populated via `IgnoreQueryFilters()`).
+- [`ProblemDetailsTests`](Api.Tests.Integration/ProblemDetailsTests.cs) — cross-cutting guard for the RFC 7807 / 9457 error pipeline: unhandled exceptions come back as `application/problem+json` without leaking a stack trace, and every problem response (including handler-built 412 / 428) carries a `traceId`.
+- [`OpenApiSpecTests`](Api.Tests.Integration/OpenApiSpecTests.cs) — regression guard for `/openapi/v1.json`: confirms FluentValidation rules flow through into the schema so downstream consumers see the same constraints the runtime enforces.
 - [`TimestampsDbSafetyNetTests`](Api.Tests.Integration/TimestampsDbSafetyNetTests.cs) — bypasses the interceptor with raw SQL to prove the DB-level safety net (column defaults + UPDATE trigger) does what it says when non-EF writers come along.
+- [`XminConcurrencyDbSafetyNetTests`](Api.Tests.Integration/XminConcurrencyDbSafetyNetTests.cs) — drives `DbContext` directly to prove the Postgres `xmin` system column is wired up as an EF concurrency token (the schema/convention side of the optimistic-concurrency story, independent of any endpoint's wiring).
 
 ## Run
 
