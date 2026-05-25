@@ -12,7 +12,7 @@ namespace Api.Tests.Integration;
 /// Tests bypass the HTTP layer and drive <c>DbContext</c> directly so they prove the
 /// schema/convention is configured correctly, independent of any single endpoint's wiring.
 /// <para>
-/// The HTTP-level catch in <c>PostsEndpoints.TryConcurrentSaveAsync</c> (which turns
+/// The HTTP-level catch in <c>Api.Http.ConcurrentSave.TryAsync</c> (which turns
 /// <see cref="DbUpdateConcurrencyException"/> into 412 with the current ETag) is not
 /// directly tested — exercising it requires injecting a concurrent write between the
 /// handler's load and save in the same request, which needs a synchronization seam the
