@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Api.Features.Posts;
 using Api.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,9 +10,12 @@ namespace Api.Tests.Integration;
 /// <list type="bullet">
 ///   <item>Unhandled exceptions go through <c>UseExceptionHandler</c> and come back as
 ///   <c>application/problem+json</c> with no stack trace leak.</item>
+///   <item><c>DbUpdateConcurrencyException</c> is intercepted by
+///   <c>DbUpdateConcurrencyExceptionHandler</c> (an <c>IExceptionHandler</c>) and surfaces
+///   as a <c>409 Conflict</c> problem+json — the dedicated path for lost-update races
+///   thrown by EF.</item>
 ///   <item>The <c>AddProblemDetails</c> customizer attaches <c>traceId</c> to every
-///   problem response — including ones the handler builds directly via
-///   <c>Results.Problem</c> (412 / 428 in PostsEndpoints).</item>
+///   problem response so a client report can be matched against server logs.</item>
 /// </list>
 /// Lives in its own file because it tests cross-cutting middleware, not a single resource.
 /// </summary>
@@ -49,36 +51,23 @@ public class ProblemDetailsTests
     }
 
     [Fact]
-    public async Task HandlerProblemResult_AlsoCarriesTraceId()
+    public async Task DbUpdateConcurrencyException_Maps_To_409_ProblemJson_WithTraceId()
     {
-        // A handler-built ProblemHttpResult (here: PUT without If-Match → 428) must
-        // also go through the ProblemDetails customizer, not bypass it. This is what
-        // proves the customizer wires through Results.Problem, not just UseExceptionHandler.
-        var created = await CreatePost("trace-id-probe", "body");
+        // The /v1/diagnostics/throw-concurrency probe throws DbUpdateConcurrencyException
+        // directly (no real EF race needed) so we can assert the IExceptionHandler mapping
+        // in isolation. The DB-level race that actually triggers this exception is
+        // exercised end-to-end by XminConcurrencyDbSafetyNetTests.
+        var response = await _client.GetAsync(
+            "/v1/diagnostics/throw-concurrency", TestContext.Current.CancellationToken);
 
-        var response = await _client.PutAsJsonAsync(
-            $"/v1/posts/{created.Id}",
-            new UpdatePostRequest("updated", "body"),
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(428, (int)response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
 
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(
             TestContext.Current.CancellationToken);
         Assert.NotNull(problem);
+        Assert.Equal(409, problem.Status);
         Assert.True(problem.Extensions.TryGetValue("traceId", out var traceId));
         Assert.False(string.IsNullOrWhiteSpace(traceId?.ToString()));
-    }
-
-    private async Task<PostResponse> CreatePost(string title, string content)
-    {
-        var response = await _client.PostAsJsonAsync(
-            "/v1/posts",
-            new CreatePostRequest(title, content),
-            TestContext.Current.CancellationToken);
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<PostResponse>(
-            TestContext.Current.CancellationToken))!;
     }
 }

@@ -7,9 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Expose internal types (e.g. ConditionalRequestMarker, ConditionalRequestKind) to
-         the unit-test project so filters and other internals can be tested in isolation
-         without forcing them onto the public surface. -->
+    <!-- Expose internal types (e.g. DbUpdateConcurrencyExceptionHandler) to the unit-test
+         project so they can be tested in isolation without being promoted to the public
+         surface. -->
     <InternalsVisibleTo Include="Api.Tests.Unit" />
   </ItemGroup>
 

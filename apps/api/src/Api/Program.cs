@@ -34,8 +34,8 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddSingleton<PostMapper>();
 
 // RFC 7807 / 9457 problem+json for ALL error responses — wired in so unhandled
-// exceptions (via UseExceptionHandler below) and bare 4xx/5xx status results (via
-// UseStatusCodePages below) come back in the same shape as our 400 / 412 / 428 responses.
+// exceptions (via UseExceptionHandler below), bare 4xx/5xx status results (via
+// UseStatusCodePages below), and validation failures all come back in the same shape.
 // The customizer attaches `traceId` to every problem response so a client report can be
 // matched against server logs without the user copying anything else.
 builder.Services.AddProblemDetails(options =>
@@ -45,6 +45,13 @@ builder.Services.AddProblemDetails(options =>
         ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier;
     };
 });
+
+// Maps DbUpdateConcurrencyException → 409 problem+json (with traceId via the customizer
+// above). The exception is thrown by EF when an UPDATE/DELETE finds the row's xmin
+// concurrency token has been bumped by another writer since this request loaded it.
+// Registered as IExceptionHandler so UseExceptionHandler below picks it up before
+// falling through to the default 500.
+builder.Services.AddExceptionHandler<DbUpdateConcurrencyExceptionHandler>();
 
 // Per-IP fixed-window rate limiter applied globally. Defaults intentionally strict
 // (appsettings.json: 100/min) so the boilerplate is safe out of the box; dev/test get
@@ -107,10 +114,6 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<FluentValidationSchemaTransformer>();
-    // Emits ETag response headers and If-Match / If-None-Match request parameters
-    // for endpoints marked with .WithConditionalRead() / .WithConditionalWrite() /
-    // .WithEtagResponseHeader() — see ConditionalRequestOpenApi.cs.
-    options.AddOperationTransformer<ConditionalRequestOperationTransformer>();
 });
 
 var app = builder.Build();
@@ -123,17 +126,22 @@ if (app.Environment.IsDevelopment())
 }
 
 // Error handling — registered before any endpoint mapping so it wraps every handler.
-// UseExceptionHandler: catches unhandled exceptions, hands them to ProblemDetailsService,
-// emits application/problem+json with the configured customizer (traceId etc.). No stack
+// UseExceptionHandler: catches unhandled exceptions, runs registered IExceptionHandlers
+// in order (DbUpdateConcurrencyExceptionHandler → 409, then default → 500), emits
+// application/problem+json with the configured customizer (traceId etc.). No stack
 // trace ever leaks — same shape in Development and Production.
 app.UseExceptionHandler();
 // UseStatusCodePages: catches 4xx / 5xx responses that have no body (e.g. a bare
 // Results.StatusCode(503)) and wraps them in problem+json too. Won't disturb handlers
-// that already wrote a body (validation 400s, our 412 / 428 ProblemHttpResults, …).
+// that already wrote a body (validation 400s etc.).
 app.UseStatusCodePages();
 // Rate limiter runs after the error-shaping middleware so 429 rejections flow through
 // the same ProblemDetails pipeline as everything else (traceId, problem+json shape).
 app.UseRateLimiter();
+
+// Body-hash ETag + 304 for every GET (outside /health*). Runs after rate-limiter so we
+// don't hash 429 responses. Endpoints stay ignorant — no per-handler ETag plumbing.
+app.UseMiddleware<EtagMiddleware>();
 
 // /openapi/v1.json — machine-readable spec. Available in all environments so client
 // codegen and integration tests can rely on it; gate per-environment if that ever changes.
@@ -156,6 +164,13 @@ if (app.Environment.IsDevelopment())
 {
     v1.MapGet("/diagnostics/throw", static IResult () =>
         throw new InvalidOperationException("Deliberate exception for problem-details probe."));
+
+    // Used by ProblemDetailsTests to verify DbUpdateConcurrencyExceptionHandler maps the
+    // exception to 409 problem+json. Throwing the exception directly (rather than via a
+    // real EF race) lets us assert the mapping without a synchronization seam in the
+    // production write path. The xmin DB-safety-net tests prove the real race throws.
+    v1.MapGet("/diagnostics/throw-concurrency", static IResult () =>
+        throw new DbUpdateConcurrencyException("Deliberate exception for 409 mapping probe."));
 
     // 3 successful requests, then 429 on the 4th — used by RateLimitingTests to verify
     // the OnRejected handler's response shape (problem+json + traceId + Retry-After).

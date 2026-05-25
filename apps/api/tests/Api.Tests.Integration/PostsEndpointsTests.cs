@@ -10,9 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Api.Tests.Integration;
 
 /// <summary>
-/// Full behaviour suite for the Posts endpoints: CRUD plus RFC 7232 conditional-request
-/// semantics (ETag on responses, 304 on If-None-Match, 428/412 on missing/stale If-Match for
-/// writes). Tests are grouped by HTTP verb so each endpoint's full contract is read top-to-bottom.
+/// Full behaviour suite for the Posts endpoints: CRUD plus the cross-cutting concerns that
+/// land on every Posts response — body-hash ETag + 304 on GETs (via EtagMiddleware),
+/// soft-delete visibility, and validation. Tests are grouped by HTTP verb so each
+/// endpoint's full contract reads top-to-bottom.
 /// </summary>
 [Collection(nameof(IntegrationTestCollection))]
 public class PostsEndpointsTests : IAsyncLifetime
@@ -73,9 +74,11 @@ public class PostsEndpointsTests : IAsyncLifetime
     public async Task GetAll_DoesNotReturnSoftDeletedPosts()
     {
         var keeper = await CreatePost("Keeper", "body");
-        var (doomed, doomedEtag) = await CreatePostWithETag("Doomed", "body");
+        var doomed = await CreatePost("Doomed", "body");
 
-        await SendDelete(doomed.Id, doomedEtag);
+        var deleteResponse = await _client.DeleteAsync(
+            $"/v1/posts/{doomed.Id}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         var listResponse = await _client.GetAsync("/v1/posts", TestContext.Current.CancellationToken);
         var posts = await listResponse.Content.ReadFromJsonAsync<List<PostResponse>>(
@@ -111,9 +114,9 @@ public class PostsEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task GetById_Returns_ETag_Header_MatchingPostResponse()
+    public async Task GetById_Sets_StrongQuotedETag_ViaMiddleware()
     {
-        var (created, postEtag) = await CreatePostWithETag("Tagged", "body");
+        var created = await CreatePost("Tagged", "body");
 
         var response = await _client.GetAsync(
             $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
@@ -121,13 +124,20 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(response.Headers.ETag);
         Assert.False(response.Headers.ETag!.IsWeak);
-        Assert.Equal(postEtag, response.Headers.ETag.ToString());
+        var raw = response.Headers.ETag.ToString();
+        Assert.StartsWith("\"", raw);
+        Assert.EndsWith("\"", raw);
     }
 
     [Fact]
     public async Task GetById_With_IfNoneMatch_Matching_Returns304_WithoutBody()
     {
-        var (created, etag) = await CreatePostWithETag("Cached", "body");
+        var created = await CreatePost("Cached", "body");
+
+        // First fetch to learn the body-hash ETag the middleware computes.
+        var first = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
+        var etag = first.Headers.ETag?.ToString();
+        Assert.NotNull(etag);
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/posts/{created.Id}");
         request.Headers.TryAddWithoutValidation("If-None-Match", etag);
@@ -142,10 +152,10 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task GetById_With_Stale_IfNoneMatch_Returns200_WithBodyAndCurrentETag()
     {
-        var (created, _) = await CreatePostWithETag("Modified", "body");
+        var created = await CreatePost("Modified", "body");
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"/v1/posts/{created.Id}");
-        request.Headers.TryAddWithoutValidation("If-None-Match", "\"0000000000000000\"");
+        request.Headers.TryAddWithoutValidation("If-None-Match", "\"deadbeef\"");
 
         var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
 
@@ -155,6 +165,28 @@ public class PostsEndpointsTests : IAsyncLifetime
             TestContext.Current.CancellationToken);
         Assert.NotNull(body);
         Assert.Equal(created.Id, body.Id);
+    }
+
+    [Fact]
+    public async Task GetById_ETag_Changes_AfterPut()
+    {
+        var created = await CreatePost("Before", "body");
+
+        var beforeEtag = (await _client.GetAsync(
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken)).Headers.ETag?.ToString();
+
+        var put = await _client.PutAsJsonAsync(
+            $"/v1/posts/{created.Id}",
+            new UpdatePostRequest("After", "body"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        var afterEtag = (await _client.GetAsync(
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken)).Headers.ETag?.ToString();
+
+        Assert.NotNull(beforeEtag);
+        Assert.NotNull(afterEtag);
+        Assert.NotEqual(beforeEtag, afterEtag);
     }
 
     // ---------- POST /v1/posts ----------
@@ -173,22 +205,6 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal("First post", body.Title);
         Assert.Equal("Hello world.", body.Content);
         Assert.Equal($"/v1/posts/{body.Id}", response.Headers.Location?.OriginalString);
-        Assert.NotNull(response.Headers.ETag);
-    }
-
-    [Fact]
-    public async Task Post_ReturnsStrongQuotedETag()
-    {
-        var response = await _client.PostAsJsonAsync(
-            "/v1/posts",
-            new CreatePostRequest("Tagged", "body"),
-            TestContext.Current.CancellationToken);
-
-        Assert.NotNull(response.Headers.ETag);
-        Assert.False(response.Headers.ETag!.IsWeak);
-        var raw = response.Headers.ETag.ToString();
-        Assert.StartsWith("\"", raw);
-        Assert.EndsWith("\"", raw);
     }
 
     [Fact]
@@ -246,9 +262,12 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Put_UpdatesPost()
     {
-        var (created, etag) = await CreatePostWithETag("Original", "Original body");
+        var created = await CreatePost("Original", "Original body");
 
-        var response = await SendPut(created.Id, new UpdatePostRequest("Updated", "Updated body"), etag);
+        var response = await _client.PutAsJsonAsync(
+            $"/v1/posts/{created.Id}",
+            new UpdatePostRequest("Updated", "Updated body"),
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<PostResponse>(TestContext.Current.CancellationToken);
@@ -260,29 +279,12 @@ public class PostsEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Put_Returns_New_ETag_After_Update()
-    {
-        var (created, originalEtag) = await CreatePostWithETag("Original", "body");
-
-        var response = await SendPut(created.Id, new UpdatePostRequest("Updated", "updated body"), originalEtag);
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var newEtag = response.Headers.ETag?.ToString();
-        Assert.NotNull(newEtag);
-        Assert.NotEqual(originalEtag, newEtag);
-
-        // A subsequent GET returns the same new ETag.
-        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-        Assert.Equal(newEtag, get.Headers.ETag?.ToString());
-    }
-
-    [Fact]
     public async Task Put_Returns404_WhenNotFound()
     {
-        var response = await SendPut(
-            Guid.NewGuid(),
+        var response = await _client.PutAsJsonAsync(
+            $"/v1/posts/{Guid.NewGuid()}",
             new UpdatePostRequest("title", "content"),
-            ifMatch: "\"deadbeef\"");
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -290,9 +292,12 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Put_Returns400_WhenTitleEmpty()
     {
-        var (created, etag) = await CreatePostWithETag("Original", "Original body");
+        var created = await CreatePost("Original", "Original body");
 
-        var response = await SendPut(created.Id, new UpdatePostRequest("", "body"), etag);
+        var response = await _client.PutAsJsonAsync(
+            $"/v1/posts/{created.Id}",
+            new UpdatePostRequest("", "body"),
+            TestContext.Current.CancellationToken);
 
         await AssertValidationProblem(response, nameof(UpdatePostRequest.Title), "Title is required.");
 
@@ -305,82 +310,15 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal(created.UpdatedAt, current.UpdatedAt);
     }
 
-    [Fact]
-    public async Task Put_ValidationFails_Before_IfMatch_IsChecked()
-    {
-        // A malformed body should burn no precondition check or DB write — the validation
-        // filter runs first, so even without an If-Match header we get 400 not 428.
-        var (created, _) = await CreatePostWithETag("Original", "body");
-
-        var request = new HttpRequestMessage(HttpMethod.Put, $"/v1/posts/{created.Id}")
-        {
-            Content = JsonContent.Create(new UpdatePostRequest("", "")),
-        };
-
-        var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Put_Without_IfMatch_Returns428()
-    {
-        var (created, _) = await CreatePostWithETag("Original", "body");
-
-        var response = await _client.PutAsJsonAsync(
-            $"/v1/posts/{created.Id}",
-            new UpdatePostRequest("New", "new body"),
-            TestContext.Current.CancellationToken);
-
-        Assert.Equal(StatusCodes.Status428PreconditionRequired, (int)response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Put_With_Stale_IfMatch_Returns412_AndExposesCurrentETag()
-    {
-        var (created, originalEtag) = await CreatePostWithETag("Original", "body");
-
-        // First update — succeeds, ETag changes.
-        var firstUpdate = await SendPut(created.Id, new UpdatePostRequest("First", "1"), originalEtag);
-        Assert.Equal(HttpStatusCode.OK, firstUpdate.StatusCode);
-        var currentEtag = firstUpdate.Headers.ETag?.ToString();
-        Assert.NotNull(currentEtag);
-        Assert.NotEqual(originalEtag, currentEtag);
-
-        // Second update with the stale tag — 412.
-        var stale = await SendPut(created.Id, new UpdatePostRequest("Second", "2"), originalEtag);
-        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
-        Assert.Equal(currentEtag, stale.Headers.ETag?.ToString());
-
-        // Body wasn't mutated by the failed PUT.
-        var current = await _client.GetFromJsonAsync<PostResponse>(
-            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-        Assert.NotNull(current);
-        Assert.Equal("First", current.Title);
-    }
-
-    [Fact]
-    public async Task Put_With_WildcardIfMatch_Succeeds()
-    {
-        var (created, _) = await CreatePostWithETag("Original", "body");
-
-        var response = await SendPut(created.Id, new UpdatePostRequest("Wildcarded", "w"), ifMatch: "*");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<PostResponse>(
-            TestContext.Current.CancellationToken);
-        Assert.NotNull(body);
-        Assert.Equal("Wildcarded", body.Title);
-    }
-
     // ---------- DELETE /v1/posts/{id} ----------
 
     [Fact]
     public async Task Delete_RemovesPost()
     {
-        var (created, etag) = await CreatePostWithETag("To delete", "body");
+        var created = await CreatePost("To delete", "body");
 
-        var deleteResponse = await SendDelete(created.Id, etag);
+        var deleteResponse = await _client.DeleteAsync(
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         var getResponse = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
@@ -390,9 +328,10 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Delete_KeepsRowInDb_WithDeletedAtPopulated()
     {
-        var (created, etag) = await CreatePostWithETag("To soft-delete", "body");
+        var created = await CreatePost("To soft-delete", "body");
 
-        var deleteResponse = await SendDelete(created.Id, etag);
+        var deleteResponse = await _client.DeleteAsync(
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         // The row still exists, just hidden by the query filter — assert via IgnoreQueryFilters.
@@ -411,7 +350,8 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Delete_Returns404_WhenNotFound()
     {
-        var response = await SendDelete(Guid.NewGuid(), ifMatch: "\"deadbeef\"");
+        var response = await _client.DeleteAsync(
+            $"/v1/posts/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -419,91 +359,29 @@ public class PostsEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Delete_Twice_SecondCallReturns404()
     {
-        var (created, etag) = await CreatePostWithETag("To delete twice", "body");
+        var created = await CreatePost("To delete twice", "body");
 
-        var first = await SendDelete(created.Id, etag);
+        var first = await _client.DeleteAsync(
+            $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
 
-        // Second call: row is soft-deleted, so the query filter hides it. 404 wins
-        // before the If-Match check, so the original ETag is fine to send here.
-        var second = await SendDelete(created.Id, etag);
-        Assert.Equal(HttpStatusCode.NotFound, second.StatusCode);
-    }
-
-    [Fact]
-    public async Task Delete_Without_IfMatch_Returns428_AndDoesNotRemovePost()
-    {
-        var (created, _) = await CreatePostWithETag("Persistent", "body");
-
-        var response = await _client.DeleteAsync(
+        // Row is soft-deleted, so the global query filter hides it from the second lookup.
+        var second = await _client.DeleteAsync(
             $"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-
-        Assert.Equal(StatusCodes.Status428PreconditionRequired, (int)response.StatusCode);
-
-        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-    }
-
-    [Fact]
-    public async Task Delete_With_Stale_IfMatch_Returns412_AndDoesNotRemovePost()
-    {
-        var (created, originalEtag) = await CreatePostWithETag("Persistent", "body");
-
-        var update = await SendPut(created.Id, new UpdatePostRequest("Bumped", "b"), originalEtag);
-        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
-
-        var stale = await SendDelete(created.Id, originalEtag);
-        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
-
-        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-    }
-
-    [Fact]
-    public async Task Delete_With_WildcardIfMatch_SoftDeletes()
-    {
-        var (created, _) = await CreatePostWithETag("Wildcard delete", "body");
-
-        var response = await SendDelete(created.Id, ifMatch: "*");
-
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        var get = await _client.GetAsync($"/v1/posts/{created.Id}", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, second.StatusCode);
     }
 
     // ---------- helpers ----------
 
-    private async Task<PostResponse> CreatePost(string title, string content) =>
-        (await CreatePostWithETag(title, content)).post;
-
-    private async Task<(PostResponse post, string etag)> CreatePostWithETag(string title, string content)
+    private async Task<PostResponse> CreatePost(string title, string content)
     {
         var response = await _client.PostAsJsonAsync(
             "/v1/posts",
             new CreatePostRequest(title, content),
             TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
-        var body = await response.Content.ReadFromJsonAsync<PostResponse>(TestContext.Current.CancellationToken);
-        var etag = response.Headers.ETag?.ToString()
-            ?? throw new InvalidOperationException("Server did not return an ETag header on POST.");
-        return (body!, etag);
-    }
-
-    private async Task<HttpResponseMessage> SendPut(Guid id, UpdatePostRequest payload, string ifMatch)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Put, $"/v1/posts/{id}")
-        {
-            Content = JsonContent.Create(payload),
-        };
-        request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
-        return await _client.SendAsync(request, TestContext.Current.CancellationToken);
-    }
-
-    private async Task<HttpResponseMessage> SendDelete(Guid id, string ifMatch)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Delete, $"/v1/posts/{id}");
-        request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
-        return await _client.SendAsync(request, TestContext.Current.CancellationToken);
+        return (await response.Content.ReadFromJsonAsync<PostResponse>(
+            TestContext.Current.CancellationToken))!;
     }
 
     private async Task AssertNoPostsExist()
