@@ -11,6 +11,12 @@ namespace Api.Data;
 /// project's output dir by the SDK) plus environment variables — so design-time tooling
 /// uses the same dev credentials as <c>dotnet run</c>, and changing the password in
 /// <c>appsettings.Development.json</c> doesn't silently break EF tooling.
+/// <para>
+/// The OpenIddict EF Core mappings live on <see cref="DbContextOptionsBuilder"/> via the
+/// <c>UseOpenIddict()</c> extension — wired here too so design-time migrations see the
+/// OpenIddict tables (applications, authorizations, scopes, tokens) and generate the
+/// matching DDL alongside the rest of the model.
+/// </para>
 /// </summary>
 internal sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
 {
@@ -29,6 +35,10 @@ internal sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<A
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(connectionString)
+            // Register OpenIddict EF Core mappings on the context so migrations include
+            // applications/authorizations/scopes/tokens tables. Mirrors the wiring in
+            // Program.cs — keep these two call-sites in sync.
+            .UseOpenIddict()
             .Options;
 
         return new AppDbContext(options);

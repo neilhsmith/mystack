@@ -26,6 +26,13 @@ public class PostsEndpointsTests : IAsyncLifetime
     {
         _factory = factory;
         _client = factory.CreateClient();
+
+        // Authenticate every request as an Admin with both scopes — covers all the Posts
+        // endpoint authorization requirements (mystack.read/write + posts.* permissions).
+        // Tests that target the auth boundary itself (401/403 paths) override these headers
+        // per-request.
+        _client.DefaultRequestHeaders.Add(TestAuthHandler.RoleHeader, "Admin");
+        _client.DefaultRequestHeaders.Add(TestAuthHandler.ScopeHeader, "mystack.read mystack.write");
     }
 
     public async ValueTask InitializeAsync()

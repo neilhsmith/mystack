@@ -1,0 +1,10 @@
+@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@{
+    ViewData["Title"] = "Access denied";
+}
+
+<h1>Access denied</h1>
+<p>Your account doesn't have access to this resource.</p>
+<p class="note"><a href="/">Return home</a></p>

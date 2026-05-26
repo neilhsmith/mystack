@@ -1,4 +1,7 @@
+using Api.Authorization;
+using Api.Features.Auth;
 using Api.Http;
+using Api.Rbac;
 using Api.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -23,24 +26,36 @@ public static class PostsEndpoints
     {
         var group = app.MapGroup("/posts").WithTags("Posts");
 
-        group.MapGet("/", GetAll);
+        // ----- Reads ----- (mystack.read scope + posts.read permission)
+        group.MapGet("/", GetAll)
+            .RequireScope(Scopes.Read)
+            .RequirePermission(Permissions.Posts.Read);
 
         group.MapGet("/{id:guid}", GetById)
+            .RequireScope(Scopes.Read)
+            .RequirePermission(Permissions.Posts.Read)
             // Service-returned errors flow through ErrorResults.ToProblem → ProblemHttpResult.
             // The 404 carries a problem+json body (not the empty body the old endpoint produced
             // via UseStatusCodePages), so advertise it explicitly to OpenAPI.
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // ----- Writes ----- (mystack.write scope + the per-verb permission)
         group.MapPost("/", Create)
             .AddEndpointFilter<ValidationEndpointFilter<CreatePostRequest>>()
+            .RequireScope(Scopes.Write)
+            .RequirePermission(Permissions.Posts.Create)
             .ProducesValidationProblem();
 
         group.MapPut("/{id:guid}", Update)
             .AddEndpointFilter<ValidationEndpointFilter<UpdatePostRequest>>()
+            .RequireScope(Scopes.Write)
+            .RequirePermission(Permissions.Posts.Update)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id:guid}", Delete)
+            .RequireScope(Scopes.Write)
+            .RequirePermission(Permissions.Posts.Delete)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
