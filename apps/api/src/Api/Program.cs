@@ -33,6 +33,10 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 // Mapperly-generated mappers are stateless — register one instance per feature folder.
 builder.Services.AddSingleton<PostMapper>();
 
+// Per-feature service classes own DbContext interaction and return ErrorOr<T>; scoped so
+// they share the request's AppDbContext. Endpoints stay thin — see PostsEndpoints.
+builder.Services.AddScoped<PostsService>();
+
 // RFC 7807 / 9457 problem+json for ALL error responses — wired in so unhandled
 // exceptions (via UseExceptionHandler below), bare 4xx/5xx status results (via
 // UseStatusCodePages below), and validation failures all come back in the same shape.
