@@ -38,10 +38,15 @@ public static class ErrorResults
     ///   becomes the <c>title</c>.</item>
     /// </list>
     /// <para>
-    /// Mixing a validation error with a non-validation one in the same list is unusual —
-    /// services typically either fail fast (NotFound, Conflict, Unauthorized) or aggregate
-    /// validation. When mixed, the non-validation error dictates the status and the
-    /// validation errors are discarded; if you need both, surface them in two stages.
+    /// Mixed lists (validation + non-validation in the same result) are a defensive
+    /// fallback, not a designed-for path. Services should either fail fast (NotFound,
+    /// Conflict, Unauthorized) or aggregate validation — not both in one call. When a
+    /// mixed list does reach the adapter, the non-validation error wins because a
+    /// fundamental failure ("the post doesn't exist") matters more than a shape problem
+    /// on a request you can't act on anyway; the validation errors are dropped on the
+    /// floor. If you genuinely need to surface both, return the validation result first
+    /// and let the caller act on it before attempting the operation that produced the
+    /// non-validation error.
     /// </para>
     /// </summary>
     public static ProblemHttpResult ToProblem(this List<Error> errors)
