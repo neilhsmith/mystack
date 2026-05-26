@@ -4,6 +4,7 @@ using Api.Data;
 using Api.Features.Posts;
 using Api.Tests.Integration.Fixtures;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -111,6 +112,30 @@ public class PostsEndpointsTests : IAsyncLifetime
         var response = await _client.GetAsync($"/v1/posts/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_404_Body_Is_ServiceShaped_ProblemJson()
+    {
+        // The 404 body comes from PostsService → PostErrors.NotFound → ErrorResults.ToProblem,
+        // not from UseStatusCodePages filling a bare empty response. So the title carries
+        // the per-resource message ("Post {id} was not found.") rather than a generic
+        // "Not Found", and traceId is stamped by the AddProblemDetails customizer.
+        var missingId = Guid.NewGuid();
+
+        var response = await _client.GetAsync(
+            $"/v1/posts/{missingId}", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(problem);
+        Assert.Equal(404, problem.Status);
+        Assert.Equal($"Post {missingId} was not found.", problem.Title);
+        Assert.True(problem.Extensions.TryGetValue("traceId", out var traceId));
+        Assert.False(string.IsNullOrWhiteSpace(traceId?.ToString()));
     }
 
     [Fact]
