@@ -43,7 +43,19 @@ public sealed class ValidationEndpointFilter<T> : IEndpointFilter
         var result = await _validator.ValidateAsync(model, context.HttpContext.RequestAborted);
         if (!result.IsValid)
         {
-            return Results.ValidationProblem(result.ToDictionary());
+            // FluentValidation reports CLR property names (PascalCase), e.g. `Title`. The
+            // JSON request DTO uses camelCase (`title`), so transform the keys before
+            // emitting so the validation envelope matches the wire shape clients see.
+            // Multiple rule failures per property are preserved as an array (matches the
+            // RFC 9457 / ValidationProblemDetails shape).
+            var errors = result.Errors
+                .GroupBy(e => JsonPropertyNaming.ToJsonPath(e.PropertyName), StringComparer.Ordinal)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(e => e.ErrorMessage).ToArray(),
+                    StringComparer.Ordinal);
+
+            return Results.ValidationProblem(errors);
         }
 
         return await next(context);

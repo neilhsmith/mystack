@@ -289,6 +289,28 @@ public class PostsEndpointsTests : IAsyncLifetime
         await AssertNoPostsExist();
     }
 
+    [Fact]
+    public async Task Post_ValidationProblem_Uses_CamelCase_Keys_OnTheWire()
+    {
+        // Belt-and-braces: AssertValidationProblem transforms CLR names internally, so a
+        // future regression that emits PascalCase keys would still pass that helper. Hit
+        // the raw JSON to lock in the on-the-wire contract.
+        var request = new CreatePostRequest("", "");
+
+        var response = await _client.PostAsJsonAsync("/v1/posts", request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var json = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var errors = doc.RootElement.GetProperty("errors");
+
+        // Keys are the JSON property names (camelCase), matching what the request body uses.
+        var keys = errors.EnumerateObject().Select(p => p.Name).ToList();
+        Assert.Contains("title", keys);
+        Assert.DoesNotContain("Title", keys);
+    }
+
     // ---------- PUT /v1/posts/{id} ----------
 
     [Fact]
@@ -430,6 +452,11 @@ public class PostsEndpointsTests : IAsyncLifetime
     /// response produced by <c>Results.ValidationProblem(...)</c> and that the named
     /// property's first error matches <paramref name="expectedMessage"/>. The validator
     /// is configured to stop at first failure per property, so the error array is length 1.
+    /// <para>
+    /// <paramref name="propertyName"/> takes the CLR name (use <c>nameof(...)</c>) so call
+    /// sites stay refactor-safe; the helper transforms it to the JSON shape clients see
+    /// (camelCase) via <see cref="Api.Validation.JsonPropertyNaming.ToJsonName"/>.
+    /// </para>
     /// </summary>
     private static async Task AssertValidationProblem(
         HttpResponseMessage response, string propertyName, string expectedMessage)
@@ -440,9 +467,11 @@ public class PostsEndpointsTests : IAsyncLifetime
         var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(
             TestContext.Current.CancellationToken);
         Assert.NotNull(problem);
+
+        var expectedKey = Api.Validation.JsonPropertyNaming.ToJsonName(propertyName);
         Assert.True(
-            problem.Errors.TryGetValue(propertyName, out var messages),
-            $"Expected validation error key '{propertyName}', got: {string.Join(", ", problem.Errors.Keys)}");
+            problem.Errors.TryGetValue(expectedKey, out var messages),
+            $"Expected validation error key '{expectedKey}', got: {string.Join(", ", problem.Errors.Keys)}");
         Assert.Contains(expectedMessage, messages!);
     }
 }
