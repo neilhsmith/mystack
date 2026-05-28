@@ -6,6 +6,7 @@ using Api.Features.Auth.Seeding;
 using Api.Features.Posts;
 using Api.Http;
 using Api.Identity;
+using Api.OpenApi;
 using Api.Rbac;
 using Api.Validation;
 using FluentValidation;
@@ -323,6 +324,12 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<FluentValidationSchemaTransformer>();
+
+    // Declare the oauth2 security scheme once at the document level, then attach a
+    // per-operation security requirement to every protected endpoint. Together they
+    // teach Swagger UI (and any other spec consumer) how to drive a real login.
+    options.AddDocumentTransformer<OAuthSecuritySchemeTransformer>();
+    options.AddOperationTransformer<OAuthOperationSecurityTransformer>();
 });
 
 // ---------------- Razor Pages (auth UI) ----------------
@@ -349,6 +356,45 @@ app.UseAuthorization();
 // + JWKS endpoints, which OpenIddict registers internally and doesn't pass through the
 // authorization middleware.
 app.MapOpenApi().AllowAnonymous();
+
+// Swagger UI — dev-only. Renders the native OpenAPI spec from /openapi/v1.json and
+// drives a real login against the in-process OpenIddict server via the seeded
+// `mystack-swagger` client (Auth Code + PKCE). The page's "Authorize" button kicks
+// off the flow, the resulting bearer token is attached to every "Try it out" request,
+// and protected endpoints become directly callable. Turn off in production by removing
+// (or gating differently) this whole block — prod APIs typically don't expose Swagger.
+//
+// Note on auth: UseSwaggerUI registers raw middleware (not endpoints), so it doesn't
+// flow through UseAuthorization / the fallback policy — no AllowAnonymous needed.
+if (app.Environment.IsDevelopment())
+{
+    var swaggerClientId = builder.Configuration.GetValue<string>("Seed:Clients:SwaggerClientId")
+        ?? "mystack-swagger";
+
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = "swagger";
+        // Native OpenAPI generator writes to /openapi/v1.json; point Swagger UI there
+        // (rather than the legacy /swagger/v1/swagger.json Swashbuckle would expect).
+        options.SwaggerEndpoint("/openapi/v1.json", "mystack v1");
+        options.DocumentTitle = "mystack — API";
+
+        // OAuth flow config. Client id matches the seeded application; PKCE is forced on
+        // because the OpenIddict server requires it for all Auth Code clients. Scopes
+        // listed here are the defaults checked in the Authorize dialog — the user can
+        // un-check any they don't want, mirroring real-world consent UX.
+        options.OAuthClientId(swaggerClientId);
+        options.OAuthAppName("mystack Swagger UI");
+        options.OAuthUsePkce();
+        options.OAuthScopes(
+            "openid",
+            "profile",
+            "email",
+            "roles",
+            "mystack.read",
+            "mystack.write");
+    });
+}
 
 // Razor Pages — currently just the auth UI under /Account/* and the landing /. The
 // individual pages opt into / out of auth via [AllowAnonymous] on the page model.

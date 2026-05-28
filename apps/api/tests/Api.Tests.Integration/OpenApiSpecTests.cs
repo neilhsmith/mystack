@@ -57,6 +57,80 @@ public class OpenApiSpecTests
         AssertMaxLength(schema, "content", Api.Features.Posts.Post.Constraints.MaxContentLength);
     }
 
+    [Fact]
+    public async Task Document_Declares_OAuth2_AuthorizationCode_SecurityScheme()
+    {
+        var doc = await GetDocument();
+
+        var schemes = doc.GetProperty("components").GetProperty("securitySchemes");
+        var oauth2 = schemes.GetProperty("oauth2");
+
+        Assert.Equal("oauth2", oauth2.GetProperty("type").GetString());
+
+        var flow = oauth2.GetProperty("flows").GetProperty("authorizationCode");
+        Assert.Equal("/connect/authorize", flow.GetProperty("authorizationUrl").GetString());
+        Assert.Equal("/connect/token", flow.GetProperty("tokenUrl").GetString());
+
+        var scopes = flow.GetProperty("scopes")
+            .EnumerateObject()
+            .Select(p => p.Name)
+            .ToHashSet();
+        Assert.Contains("openid", scopes);
+        Assert.Contains("mystack.read", scopes);
+        Assert.Contains("mystack.write", scopes);
+    }
+
+    [Fact]
+    public async Task ProtectedEndpoint_Has_Per_Operation_OAuth2_SecurityRequirement_WithScopes()
+    {
+        var doc = await GetDocument();
+
+        // GET /v1/posts requires the read scope; security requirement should reference
+        // the oauth2 scheme with that scope name.
+        var get = doc.GetProperty("paths").GetProperty("/v1/posts").GetProperty("get");
+        var security = get.GetProperty("security");
+        Assert.Equal(1, security.GetArrayLength());
+
+        var requirement = security[0];
+        var oauth2Scopes = requirement.GetProperty("oauth2")
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        Assert.Equal(new[] { "mystack.read" }, oauth2Scopes);
+
+        // POST /v1/posts requires the write scope.
+        var post = doc.GetProperty("paths").GetProperty("/v1/posts").GetProperty("post");
+        var postRequirement = post.GetProperty("security")[0];
+        var postScopes = postRequirement.GetProperty("oauth2")
+            .EnumerateArray()
+            .Select(e => e.GetString())
+            .ToList();
+        Assert.Equal(new[] { "mystack.write" }, postScopes);
+    }
+
+    [Fact]
+    public async Task AnonymousEndpoint_Has_No_SecurityRequirement()
+    {
+        var doc = await GetDocument();
+
+        // /v1/hello is explicitly .AllowAnonymous() — the operation transformer should
+        // skip it, so no `security` key is emitted.
+        var hello = doc.GetProperty("paths").GetProperty("/v1/hello").GetProperty("get");
+        Assert.False(hello.TryGetProperty("security", out _));
+    }
+
+    private async Task<JsonElement> GetDocument()
+    {
+        var response = await _client.GetAsync("/openapi/v1.json", TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var doc = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        return doc.RootElement.Clone();
+    }
+
     private async Task<JsonElement> GetSchema(string schemaName)
     {
         var response = await _client.GetAsync("/openapi/v1.json", TestContext.Current.CancellationToken);
