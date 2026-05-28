@@ -1,0 +1,26 @@
+@*
+    Minimal shared layout for the auth UI. Deliberately style-light — auth pages are not
+    the product, and dressing them up invites premature design decisions. Replace with a
+    branded layout when the web app reaches that point.
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - mystack</title>
+    <style>
+        body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 28rem; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+        label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 500; }
+        input[type=text], input[type=email], input[type=password] { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { margin-top: 1.5rem; padding: 0.6rem 1.25rem; background: #2563eb; color: white; border: 0; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #1d4ed8; }
+        .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; }
+        .note { font-size: 0.875rem; color: #555; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    @RenderBody()
+</body>
+</html>

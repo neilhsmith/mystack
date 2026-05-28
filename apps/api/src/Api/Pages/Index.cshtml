@@ -1,0 +1,17 @@
+@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+@{
+    ViewData["Title"] = "mystack";
+}
+
+<h1>mystack</h1>
+<p>Auth + API surface. See <code>/openapi/v1.json</code>, <code>/.well-known/openid-configuration</code>, <code>/health</code>.</p>
+@if (User.Identity?.IsAuthenticated == true)
+{
+    <p>Signed in as <strong>@User.Identity.Name</strong>. <a href="/connect/endsession">Sign out</a>.</p>
+}
+else
+{
+    <p><a href="/Account/Login">Sign in</a></p>
+}

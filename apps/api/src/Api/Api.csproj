@@ -18,12 +18,22 @@
     <PackageReference Include="ErrorOr" Version="2.1.1" />
     <PackageReference Include="FluentValidation" Version="12.0.0" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.8" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+
+    <!-- OpenIddict 7.x — OAuth 2.0 / OIDC stack. AspNetCore hosts the protocol endpoints
+         (authorize, token, userinfo, endsession) AND validates incoming bearer tokens for
+         resource-server endpoints (via OpenIddict.Validation.AspNetCore, in UseLocalServer
+         mode — no JWKS round-trip because the issuer is in-process). EntityFrameworkCore
+         registers the application/authorization/scope/token stores against AppDbContext. -->
+    <PackageReference Include="OpenIddict.AspNetCore" Version="7.5.0" />
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.5.0" />
+
     <PackageReference Include="Riok.Mapperly" Version="4.3.1">
       <ExcludeAssets>runtime</ExcludeAssets>
       <PrivateAssets>all</PrivateAssets>
