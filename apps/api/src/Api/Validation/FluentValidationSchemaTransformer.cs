@@ -16,10 +16,9 @@ namespace Api.Validation;
 /// regression guard.
 /// </para>
 /// <para>
-/// Property-name mapping: JSON names are derived from CLR names by camel-casing the first
-/// character. That matches ASP.NET's default <c>JsonSerializerDefaults.Web</c> policy. If
-/// a DTO ever uses <c>[JsonPropertyName]</c>, revisit this and resolve via the
-/// <c>JsonTypeInfo</c>.
+/// Property-name mapping goes through <see cref="JsonPropertyNaming.ToJsonName"/> — the
+/// same helper <c>ValidationEndpointFilter</c> uses for runtime error keys, so the schema
+/// and the validation error envelope describe the same field names.
 /// </para>
 /// </summary>
 internal sealed class FluentValidationSchemaTransformer : IOpenApiSchemaTransformer
@@ -41,7 +40,7 @@ internal sealed class FluentValidationSchemaTransformer : IOpenApiSchemaTransfor
         foreach (var member in descriptor.GetMembersWithValidators())
         {
             var clrName = member.Key;
-            var jsonName = ToJsonPropertyName(clrName);
+            var jsonName = JsonPropertyNaming.ToJsonName(clrName);
 
             if (schema.Properties is null || !schema.Properties.TryGetValue(jsonName, out var propSchemaReadOnly))
             {
@@ -86,9 +85,4 @@ internal sealed class FluentValidationSchemaTransformer : IOpenApiSchemaTransfor
 
         return Task.CompletedTask;
     }
-
-    private static string ToJsonPropertyName(string clrName) =>
-        string.IsNullOrEmpty(clrName)
-            ? clrName
-            : char.ToLowerInvariant(clrName[0]) + clrName[1..];
 }
