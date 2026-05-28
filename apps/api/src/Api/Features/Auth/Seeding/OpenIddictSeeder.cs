@@ -40,6 +40,7 @@ public sealed class OpenIddictSeeder
         await SeedScopesAsync(ct);
         await SeedWebClientAsync(ct);
         await SeedServiceClientAsync(ct);
+        await SeedSwaggerClientAsync(ct);
     }
 
     private async Task SeedScopesAsync(CancellationToken ct)
@@ -156,6 +157,62 @@ public sealed class OpenIddictSeeder
         // by default because a confidential service client is highly trusted; a real
         // deployment can swap to Admin or a narrower service-specific role here.
         ClientRoles.Set(descriptor, Rbac.Roles.GlobalAdmin);
+
+        await _applications.CreateAsync(descriptor, ct);
+    }
+
+    /// <summary>
+    /// The Swagger UI client — public (browser), PKCE-required, Auth Code + Refresh. The
+    /// redirect URI matches the static page Swashbuckle ships at
+    /// <c>/swagger/oauth2-redirect.html</c>. Issued tokens carry the signed-in user's
+    /// roles + scopes, exactly like the mystack-web client — Swagger UI is just another
+    /// first-party interactive client.
+    /// <para>
+    /// The single redirect URI here lives at the dev port. Real deployments would either
+    /// add more URIs (per-environment) or — more likely — turn Swagger UI off in
+    /// production entirely.
+    /// </para>
+    /// </summary>
+    private async Task SeedSwaggerClientAsync(CancellationToken ct)
+    {
+        var clientId = _options.Clients.SwaggerClientId;
+
+        if (await _applications.FindByClientIdAsync(clientId, ct) is not null)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Registering OpenIddict client {ClientId} (public, auth code + PKCE — Swagger UI).", clientId);
+
+        var descriptor = new OpenIddictApplicationDescriptor
+        {
+            ClientId = clientId,
+            ClientType = ClientTypes.Public,
+            DisplayName = "mystack Swagger UI",
+            ConsentType = ConsentTypes.Implicit, // first-party tool, skip consent
+            RedirectUris =
+            {
+                new Uri(_options.Clients.SwaggerRedirectUri),
+            },
+            Permissions =
+            {
+                Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.EndSession,
+                Permissions.Endpoints.Token,
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
+                Permissions.ResponseTypes.Code,
+                Permissions.Scopes.Email,
+                Permissions.Scopes.Profile,
+                Permissions.Scopes.Roles,
+                Permissions.Prefixes.Scope + Auth.Scopes.Read,
+                Permissions.Prefixes.Scope + Auth.Scopes.Write,
+            },
+            Requirements =
+            {
+                Requirements.Features.ProofKeyForCodeExchange,
+            },
+        };
 
         await _applications.CreateAsync(descriptor, ct);
     }

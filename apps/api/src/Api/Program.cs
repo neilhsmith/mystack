@@ -6,6 +6,7 @@ using Api.Features.Auth.Seeding;
 using Api.Features.Posts;
 using Api.Http;
 using Api.Identity;
+using Api.OpenApi;
 using Api.Rbac;
 using Api.Validation;
 using FluentValidation;
@@ -323,6 +324,12 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<FluentValidationSchemaTransformer>();
+
+    // Declare the oauth2 security scheme once at the document level, then attach a
+    // per-operation security requirement to every protected endpoint. Together they
+    // teach Swagger UI (and any other spec consumer) how to drive a real login.
+    options.AddDocumentTransformer<OAuthSecuritySchemeTransformer>();
+    options.AddOperationTransformer<OAuthOperationSecurityTransformer>();
 });
 
 // ---------------- Razor Pages (auth UI) ----------------
@@ -338,6 +345,49 @@ app.UseStatusCodePages();
 app.UseRateLimiter();
 
 app.UseMiddleware<EtagMiddleware>();
+
+// Swagger UI — dev-only. Renders the native OpenAPI spec from /openapi/v1.json and
+// drives a real login against the in-process OpenIddict server via the seeded
+// `mystack-swagger` client (Auth Code + PKCE). Click Authorize, sign in once in the
+// popup, then "Try it out" attaches the bearer token to every request.
+//
+// CRITICAL: this runs BEFORE UseAuthentication/UseAuthorization on purpose. UseSwaggerUI
+// serves its embedded HTML/JS via the StaticFileMiddleware, which sets endpoint metadata
+// on every matched file. That metadata has no AuthorizeAttribute and no AllowAnonymous,
+// so a fallback policy applied later in the pipeline would treat each /swagger/* asset
+// as "requires auth" and challenge — bouncing the browser to /Account/Login before the
+// UI ever loads. Running this middleware first short-circuits /swagger/* before the
+// auth pipeline ever sees the request. The OAuth handshake itself still goes through
+// the protected /connect/* endpoints — security is unchanged.
+if (app.Environment.IsDevelopment())
+{
+    var swaggerClientId = builder.Configuration.GetValue<string>("Seed:Clients:SwaggerClientId")
+        ?? "mystack-swagger";
+
+    app.UseSwaggerUI(options =>
+    {
+        options.RoutePrefix = "swagger";
+        // Native OpenAPI generator writes to /openapi/v1.json; point Swagger UI there
+        // (rather than the legacy /swagger/v1/swagger.json Swashbuckle would expect).
+        options.SwaggerEndpoint("/openapi/v1.json", "mystack v1");
+        options.DocumentTitle = "mystack — API";
+
+        // OAuth flow config. Client id matches the seeded application; PKCE is forced on
+        // because the OpenIddict server requires it for all Auth Code clients. Scopes
+        // listed here are the defaults checked in the Authorize dialog — the user can
+        // un-check any they don't want, mirroring real-world consent UX.
+        options.OAuthClientId(swaggerClientId);
+        options.OAuthAppName("mystack Swagger UI");
+        options.OAuthUsePkce();
+        options.OAuthScopes(
+            "openid",
+            "profile",
+            "email",
+            "roles",
+            "mystack.read",
+            "mystack.write");
+    });
+}
 
 // Authentication runs before authorization. Both must precede the endpoint dispatch.
 // Cookie + bearer schemes share the same middleware — schemes are selected per-policy.

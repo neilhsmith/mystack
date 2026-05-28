@@ -31,5 +31,11 @@ public sealed class AuthSeedOptions
         public string WebPostLogoutRedirectUri { get; set; } = "http://localhost:3000/";
         public string ServiceClientId { get; set; } = "mystack-service";
         public string ServiceClientSecret { get; set; } = string.Empty;
+
+        // Swagger UI client. The redirect URI is the static page Swashbuckle ships at
+        // /swagger/oauth2-redirect.html — defaults to the dev port (matches launchSettings).
+        // For Swagger UI exposed at a different origin, override here.
+        public string SwaggerClientId { get; set; } = "mystack-swagger";
+        public string SwaggerRedirectUri { get; set; } = "http://localhost:5084/swagger/oauth2-redirect.html";
     }
 }
