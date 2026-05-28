@@ -4,6 +4,8 @@ Planning doc for a coherent strategy across DB constraints, request DTO validati
 
 This doc captures the **plan** — it'll be implemented across several focused PRs in a follow-up session. Things here can still be redirected; nothing is committed code yet.
 
+> **Implementation note (post-merge).** PRs 1–4 shipped largely as described, but the validation entry point evolved: validators no longer run as a `ValidationEndpointFilter<T>` at the endpoint pipeline. They're injected into the per-feature service and run at the top of every write method, returning `Error.Validation` values that `ErrorResults.ToProblem` shapes into the standard envelope. The wire shape is unchanged; the rationale was that binding validation to the service contract gives non-HTTP callers (jobs, internal services, integration tests of the service) the same guarantees as HTTP callers. Current authoritative descriptions live in `CLAUDE.md` and `.claude/skills/backend-dev/SKILL.md`. Sections 2.x and 4.5 below describe the original endpoint-filter design and are kept for historical reference.
+
 ---
 
 ## 1. Why this doc exists

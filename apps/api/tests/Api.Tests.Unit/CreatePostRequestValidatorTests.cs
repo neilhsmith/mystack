@@ -5,8 +5,10 @@ namespace Api.Tests.Unit;
 
 /// <summary>
 /// Unit tests for <see cref="CreatePostRequestValidator"/>. These cover the validator in
-/// isolation — endpoint-level wiring (the filter short-circuiting with 400/RFC 9457
-/// problem+json) is exercised by PostsEndpointsTests in the integration suite.
+/// isolation. End-to-end behaviour — the service running the validator inside
+/// <c>CreateAsync</c>, the 400 / RFC 9457 problem+json wire shape — is exercised by
+/// <c>PostsEndpointsTests</c> in the integration suite; <c>PostsServiceTests</c> covers
+/// the non-HTTP path (validation runs even when the service is called directly).
 /// </summary>
 public class CreatePostRequestValidatorTests
 {

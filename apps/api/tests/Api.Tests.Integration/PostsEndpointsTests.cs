@@ -364,6 +364,20 @@ public class PostsEndpointsTests : IAsyncLifetime
         Assert.Equal(created.UpdatedAt, current.UpdatedAt);
     }
 
+    [Fact]
+    public async Task Put_Returns400_NotNotFound_WhenInvalidBody_AndMissingId()
+    {
+        // Locks the order PostsService.UpdateAsync documents: validation runs before the
+        // 404 lookup, so a malformed body wins over a missing id. If validation ever moved
+        // back behind the lookup, this would surface as 404 instead of 400.
+        var response = await _client.PutAsJsonAsync(
+            $"/v1/posts/{Guid.NewGuid()}",
+            new UpdatePostRequest("", "body"),
+            TestContext.Current.CancellationToken);
+
+        await AssertValidationProblem(response, nameof(UpdatePostRequest.Title), "Title is required.");
+    }
+
     // ---------- DELETE /v1/posts/{id} ----------
 
     [Fact]
@@ -449,7 +463,8 @@ public class PostsEndpointsTests : IAsyncLifetime
 
     /// <summary>
     /// Asserts that <paramref name="response"/> is the RFC 9457 problem+json validation
-    /// response produced by <c>Results.ValidationProblem(...)</c> and that the named
+    /// response produced by <see cref="Api.Http.ErrorResults.ToProblem(List{ErrorOr.Error})"/>
+    /// when <see cref="PostsService"/> returns validation errors, and that the named
     /// property's first error matches <paramref name="expectedMessage"/>. The validator
     /// is configured to stop at first failure per property, so the error array is length 1.
     /// <para>
