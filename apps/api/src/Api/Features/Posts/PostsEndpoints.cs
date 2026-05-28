@@ -2,7 +2,6 @@ using Api.Authorization;
 using Api.Features.Auth;
 using Api.Http;
 using Api.Rbac;
-using Api.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Api.Features.Posts;
@@ -15,9 +14,16 @@ namespace Api.Features.Posts;
 /// The success path uses <see cref="TypedResults"/> for static response-shape inference;
 /// the error path always goes through <see cref="ErrorResults.ToProblem(List{ErrorOr.Error})"/>,
 /// which emits <c>application/problem+json</c> with the same envelope as the rest of the
-/// API (validation filter, exception handlers, rate limiter). No <c>try</c>/<c>catch</c>,
-/// no per-handler status-code logic — see <see cref="ErrorResults.StatusFor(ErrorOr.ErrorType)"/>
-/// for the kind-to-status mapping.
+/// API (exception handlers, rate limiter). No <c>try</c>/<c>catch</c>, no per-handler
+/// status-code logic — see <see cref="ErrorResults.StatusFor(ErrorOr.ErrorType)"/> for the
+/// kind-to-status mapping.
+/// </para>
+/// <para>
+/// Request-shape validation runs inside <see cref="PostsService"/> (via the injected
+/// <see cref="FluentValidation.IValidator{T}"/>s), not as an endpoint filter, so any caller
+/// of the service — including non-HTTP ones — gets the same validation guarantees. The
+/// service returns validation failures as <c>Error.Validation</c> values; the same
+/// <c>ToProblem</c> adapter shapes them into the standard 400 envelope.
 /// </para>
 /// </summary>
 public static class PostsEndpoints
@@ -41,13 +47,11 @@ public static class PostsEndpoints
 
         // ----- Writes ----- (mystack.write scope + the per-verb permission)
         group.MapPost("/", Create)
-            .AddEndpointFilter<ValidationEndpointFilter<CreatePostRequest>>()
             .RequireScope(Scopes.Write)
             .RequirePermission(Permissions.Posts.Create)
             .ProducesValidationProblem();
 
         group.MapPut("/{id:guid}", Update)
-            .AddEndpointFilter<ValidationEndpointFilter<UpdatePostRequest>>()
             .RequireScope(Scopes.Write)
             .RequirePermission(Permissions.Posts.Update)
             .ProducesValidationProblem()

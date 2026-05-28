@@ -17,8 +17,8 @@ namespace Api.Validation;
 /// </para>
 /// <para>
 /// Property-name mapping goes through <see cref="JsonPropertyNaming.ToJsonName"/> — the
-/// same helper <c>ValidationEndpointFilter</c> uses for runtime error keys, so the schema
-/// and the validation error envelope describe the same field names.
+/// same helper the service layer uses to build error codes for FluentValidation failures,
+/// so the schema and the runtime validation error envelope describe the same field names.
 /// </para>
 /// </summary>
 internal sealed class FluentValidationSchemaTransformer : IOpenApiSchemaTransformer

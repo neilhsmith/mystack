@@ -13,8 +13,10 @@ namespace Api.Http;
 /// every error response across the API uniform: same problem+json envelope, same
 /// <c>traceId</c> stamped by the <c>AddProblemDetails</c> customizer in <c>Program.cs</c>,
 /// same <c>Type</c> URLs pointing at the RFC 9110 sections, same <c>errors</c> bag shape
-/// as <see cref="Microsoft.AspNetCore.Http.Results.ValidationProblem(IDictionary{string, string[]}, string?, string?, int?, string?, string?, IDictionary{string, object?}?)"/>
-/// produced by the FluentValidation filter.
+/// as <see cref="Microsoft.AspNetCore.Http.Results.ValidationProblem(IDictionary{string, string[]}, string?, string?, int?, string?, string?, IDictionary{string, object?}?)"/>.
+/// Services run request validation themselves (via injected <see cref="FluentValidation.IValidator{T}"/>s)
+/// and return <see cref="ErrorType.Validation"/> errors keyed by JSON property path; this
+/// adapter shapes those into the validation envelope clients expect.
 /// </para>
 /// <para>
 /// Field-bound vs. global validation errors: ErrorOr's <see cref="Error.Code"/> is reused
@@ -92,8 +94,9 @@ public static class ErrorResults
             .ToDictionary(g => g.Key, g => g.Select(e => e.Description).ToArray(), StringComparer.Ordinal);
 
         // HttpValidationProblemDetails (the minimal-APIs flavour) serializes the same wire
-        // shape ValidationEndpointFilter produces via Results.ValidationProblem — UI code
-        // can't tell whether the 400 came from FluentValidation or from a service rule.
+        // shape Results.ValidationProblem would produce, so UI code can't tell whether the
+        // 400 came from a service running FluentValidation or from a service-level business
+        // rule that emitted Error.Validation values.
         return TypedResults.Problem(new HttpValidationProblemDetails(bag)
         {
             Status = StatusCodes.Status400BadRequest,
