@@ -346,26 +346,19 @@ app.UseRateLimiter();
 
 app.UseMiddleware<EtagMiddleware>();
 
-// Authentication runs before authorization. Both must precede the endpoint dispatch.
-// Cookie + bearer schemes share the same middleware — schemes are selected per-policy.
-app.UseAuthentication();
-app.UseAuthorization();
-
-// OpenAPI spec is the API contract — clients (codegen, dashboards, the test suite)
-// need to read it without holding a token. Same reasoning applies to the OIDC discovery
-// + JWKS endpoints, which OpenIddict registers internally and doesn't pass through the
-// authorization middleware.
-app.MapOpenApi().AllowAnonymous();
-
 // Swagger UI — dev-only. Renders the native OpenAPI spec from /openapi/v1.json and
 // drives a real login against the in-process OpenIddict server via the seeded
-// `mystack-swagger` client (Auth Code + PKCE). The page's "Authorize" button kicks
-// off the flow, the resulting bearer token is attached to every "Try it out" request,
-// and protected endpoints become directly callable. Turn off in production by removing
-// (or gating differently) this whole block — prod APIs typically don't expose Swagger.
+// `mystack-swagger` client (Auth Code + PKCE). Click Authorize, sign in once in the
+// popup, then "Try it out" attaches the bearer token to every request.
 //
-// Note on auth: UseSwaggerUI registers raw middleware (not endpoints), so it doesn't
-// flow through UseAuthorization / the fallback policy — no AllowAnonymous needed.
+// CRITICAL: this runs BEFORE UseAuthentication/UseAuthorization on purpose. UseSwaggerUI
+// serves its embedded HTML/JS via the StaticFileMiddleware, which sets endpoint metadata
+// on every matched file. That metadata has no AuthorizeAttribute and no AllowAnonymous,
+// so a fallback policy applied later in the pipeline would treat each /swagger/* asset
+// as "requires auth" and challenge — bouncing the browser to /Account/Login before the
+// UI ever loads. Running this middleware first short-circuits /swagger/* before the
+// auth pipeline ever sees the request. The OAuth handshake itself still goes through
+// the protected /connect/* endpoints — security is unchanged.
 if (app.Environment.IsDevelopment())
 {
     var swaggerClientId = builder.Configuration.GetValue<string>("Seed:Clients:SwaggerClientId")
@@ -395,6 +388,17 @@ if (app.Environment.IsDevelopment())
             "mystack.write");
     });
 }
+
+// Authentication runs before authorization. Both must precede the endpoint dispatch.
+// Cookie + bearer schemes share the same middleware — schemes are selected per-policy.
+app.UseAuthentication();
+app.UseAuthorization();
+
+// OpenAPI spec is the API contract — clients (codegen, dashboards, the test suite)
+// need to read it without holding a token. Same reasoning applies to the OIDC discovery
+// + JWKS endpoints, which OpenIddict registers internally and doesn't pass through the
+// authorization middleware.
+app.MapOpenApi().AllowAnonymous();
 
 // Razor Pages — currently just the auth UI under /Account/* and the landing /. The
 // individual pages opt into / out of auth via [AllowAnonymous] on the page model.
