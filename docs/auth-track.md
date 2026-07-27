@@ -142,8 +142,34 @@ throughout — generic 200s, never "that email doesn't exist".
 than at an endpoint that acts on GET, so a mailbox link-scanner prefetching the URL doesn't consume
 the single-use token. That was right and the reasoning is easy to lose.
 
+**The link stays an ordinary, copyable URL.** The two properties are not in tension, and losing the
+second one to protect the first would be a real regression — mailing something to a work address and
+pasting the link into a personal browser is a flow people actually use.
+
+- `GET /confirm-email?userId=…&token=…` renders a page with a Confirm button and the token in a
+  hidden field. It changes nothing, so a prefetch is inert.
+- The button POSTs, and that is what consumes the token.
+- Pasting the URL into any browser, on any device, at any later time works, because the GET render
+  needs no prior state there. The antiforgery cookie is issued *by that render*, so it is always
+  paired with the form it just produced.
+
+Three things this depends on:
+
+- **No JavaScript auto-submit on page load.** It re-opens the hole for scanners that execute JS,
+  breaks without JS, and removes the intentionality the button exists for.
+- **The token is a credential travelling in a URL:** single-use, short expiry,
+  `Referrer-Policy: no-referrer` on that page, and OTel URL-query redaction stays **on** for auth —
+  the opposite of `api`, where query strings are paging and worth seeing.
+- **The boring branches are the ones users hit:** already-confirmed → say so and offer sign-in;
+  expired → offer resend; invalid → generic message, since anti-enumeration applies here too.
+
+Reset-password uses the same shape, where it is even more natural: GET renders the new-password
+form with the token hidden in it, POST performs the reset.
+
 **Proves:** the full failure matrix in tests, plus one integration test that runs the whole thing —
-register, job executes, Mailpit holds the message, extract the link, confirm, sign in.
+register, job executes, Mailpit holds the message, extract the link, confirm, sign in. The e2e
+version clicks the button rather than navigating to the URL, which is also what proves the
+scanner-safety property.
 
 > **Checkpoint.** Do it by hand: register in a browser, open Mailpit, click the link, sign in.
 
