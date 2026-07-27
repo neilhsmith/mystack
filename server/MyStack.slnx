@@ -2,4 +2,8 @@
   <Configurations>
     <Platform Name="Any CPU" />
   </Configurations>
+  <Folder Name="/auth/">
+    <Project Path="auth/src/MyStack.Auth.csproj" />
+    <Project Path="auth/tests/MyStack.Auth.Tests.csproj" />
+  </Folder>
 </Solution>

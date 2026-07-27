@@ -7,9 +7,11 @@ alternative structure.
 
 ## What exists today
 
-The foundation only: toolchain, CI gate, `compose.yaml`. No .NET projects yet — `server/auth`'s
-host skeleton is next. Keep architecture §7's inventory ticked as things land; it is the honest
-answer to "what is built?".
+The foundation, plus `server/auth`'s host skeleton: Identity over EF Core/Postgres, the first
+migration, health checks and security headers ([docs/auth.md](docs/auth.md)). No OpenIddict, no
+pages, no account flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
+built?".
 
 ## Layout
 
@@ -32,10 +34,13 @@ closed. Everything else starts duplicated.
 
 ```bash
 dotnet build server/MyStack.slnx     # build
-dotnet test server/MyStack.slnx      # test
+dotnet test server/MyStack.slnx      # test — needs Docker; the suites run real containers
 dotnet csharpier format .            # format; CI runs `csharpier check .`
+dotnet run --project server/auth/src # auth on :5100, migrating compose Postgres on the way up
 docker compose up -d                 # postgres + mailpit
 docker compose --profile otel up -d  # ... plus the telemetry dashboard
+
+dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
 ```
 
 ## Conventions
