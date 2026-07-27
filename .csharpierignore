@@ -1,0 +1,6 @@
+# Generated EF Core migrations — don't reformat or check.
+**/Migrations/
+
+# Build output
+**/bin/
+**/obj/
