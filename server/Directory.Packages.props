@@ -1,0 +1,13 @@
+<Project>
+  <!-- Central Package Management: every NuGet version is declared here, once.
+       Add packages with `dotnet add <proj> package <id>` (it updates this file),
+       never with an inline Version= on a <PackageReference>. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- No packages yet — the first arrives with server/auth's host skeleton. -->
+  </ItemGroup>
+</Project>

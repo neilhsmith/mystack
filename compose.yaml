@@ -1,0 +1,61 @@
+# Local development infrastructure. Applications are not here yet — they arrive with their own
+# Dockerfiles as they're built.
+#
+# Local only. Mailpit and the telemetry dashboard must never be reachable from a hosted
+# environment: mail silently going nowhere while every send reports success is worse than an
+# outage. A deployed stack gets its own compose file if it ever uses one (D12 is still open).
+#
+#   docker compose up -d                  postgres + mailpit
+#   docker compose --profile otel up -d   also the telemetry dashboard
+#
+# Host ports are env-overridable so a second isolated stack can run alongside this one:
+#   COMPOSE_PROJECT_NAME=mystack2 POSTGRES_PORT=5532 docker compose up -d
+# (containers, network and volumes are namespaced per project; only host ports clash.)
+name: mystack
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mystack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mystack}
+      POSTGRES_DB: ${POSTGRES_DB:-mystack}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    # Postgres 18 moved PGDATA to /var/lib/postgresql/<major>/docker and the image's VOLUME to the
+    # parent — mounting the old /var/lib/postgresql/data path here would silently not persist.
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-mystack} -d ${POSTGRES_DB:-mystack}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The inbox every environment's email actually lands in locally — there is no dev-only sender.
+  # UI at http://localhost:8025; the e2e suite reads the same messages over its REST API.
+  mailpit:
+    image: axllent/mailpit:v1.30
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # OTLP receiver + UI for traces, metrics and logs. Named for the role, not the image: the apps
+  # only ever speak OTLP, so swapping in a different backend is a one-line change here. Opt-in
+  # (`--profile otel`), and anonymous because it is local-only — see docs/architecture.md D1.
+  otel-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.5
+    profiles: [otel]
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: 'true'
+    ports:
+      - '${OTEL_DASHBOARD_UI_PORT:-18888}:18888' # web UI
+      - '${OTEL_DASHBOARD_OTLP_PORT:-18889}:18889' # OTLP ingest (gRPC)
+
+volumes:
+  postgres-data:

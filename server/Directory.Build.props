@@ -1,0 +1,19 @@
+<Project>
+  <!-- Shared MSBuild config for every .NET project in the repo. Nothing outside server/ is C#. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Real compiler issues (CSxxxx) fail the build; analyzer style nits (CA/IDExxxx)
+         surface as warnings so scaffolds aren't blocked by opinion. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!-- CA1014 (CLSCompliant assembly attr) is meaningless for apps, not libraries. -->
+    <NoWarn>$(NoWarn);CA1014</NoWarn>
+  </PropertyGroup>
+</Project>
