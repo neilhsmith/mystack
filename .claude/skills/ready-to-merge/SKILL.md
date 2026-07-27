@@ -49,5 +49,11 @@ A body written when the PR opened describes the plan. This rewrites it to descri
 - A superseded decision is noise, not history. Delete it.
 - Keep the section shape identical across PRs. `git log` is only greppable if every entry looks the
   same.
-- Trailers on branch commits (`Co-Authored-By`, attribution footers) do not survive the squash. If
-  one belongs in `main`'s history, it has to be in the body.
+- **Never hard-wrap the body.** GitHub re-wraps the squash message at 72 columns, one source line
+  at a time, and does not reflow paragraphs — so a body wrapped at 100 becomes 72 characters plus a
+  ~28-character remainder on every line, permanently ragged in `git log`. Write one unwrapped line
+  per paragraph and per bullet. Manual continuation indents survive as stray indentation for the
+  same reason: don't add them.
+- The squash message comes from the PR, not from the branch commits — except `Co-authored-by:`
+  trailers, which GitHub aggregates across the squashed commits and appends on its own. Any other
+  footer that belongs in `main`'s history has to be in the body.
