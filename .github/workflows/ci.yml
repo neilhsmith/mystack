@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The single required check. It grows a JavaScript half when apps/web arrives, and an e2e job
+  # (which builds container images) stays separate from it.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          # Central Package Management means every version lives in one file, so it is the whole
+          # restore key. Add **/*.csproj here once projects carry their own package references.
+          cache: true
+          cache-dependency-path: server/Directory.Packages.props
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+
+      - run: dotnet tool restore
+
+      - name: Format check
+        run: dotnet csharpier check .
+
+      - name: Build
+        run: dotnet build server/MyStack.slnx --configuration Release
+
+      - name: Test
+        run: dotnet test server/MyStack.slnx --configuration Release
