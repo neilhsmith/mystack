@@ -1,0 +1,44 @@
+# Responds to `@claude` in issues, PR comments and PR review threads.
+#
+# Requires two things that don't live in the repo: the Claude GitHub App installed on it
+# (https://github.com/apps/claude) and a CLAUDE_CODE_OAUTH_TOKEN repository secret.
+#
+# `allowed_bots` is deliberately left at its default (empty). This repo is public, and the default
+# restricts the trigger to users with write access — an allowlist of `*` would let anyone spend the
+# subscription and feed the model untrusted text.
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # so Claude can read the gate's results on a PR
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
