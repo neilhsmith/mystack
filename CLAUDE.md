@@ -88,5 +88,7 @@ assertion to reach green is not.
   deployable.
 - **Branch, then PR.** `main` is protected: no direct pushes, the `gate` check must pass, squash
   merge, branch deleted on merge.
-- **The PR body says what changed, why, and what it deliberately doesn't do.**
+- **The PR body becomes the squash commit message**, so `main`'s history is the PR bodies. It says
+  what changed, why, and what it deliberately doesn't do — describing the final state rather than
+  the plan, which means rewriting it before merging (`/ready-to-merge`).
 - **Docs are updated in the same PR as the code.** There is no docs catch-up PR.
