@@ -5,18 +5,6 @@ document — the stack, the scope boundary and the decisions behind all of this.
 proposing anything.** If something there isn't built yet, it isn't built; don't invent an
 alternative structure.
 
-## The three rules
-
-These outrank every technical preference below.
-
-1. **Understandability is a feature.** A mechanism that has to be re-explained to its own author
-   every time it comes up does not belong in the codebase yet.
-2. **No speculative infrastructure.** Every non-trivial mechanism needs a problem that is
-   *currently* hurting. "A real app might need this" is not a reason. Architecture §4 lists the
-   deferred set with the trigger that would justify each one.
-3. **One concern per PR.** One thing, reviewable in one sitting, leaving `main` green and
-   deployable.
-
 ## What exists today
 
 The foundation only: toolchain, CI gate, `compose.yaml`. No .NET projects yet — `server/auth`'s
@@ -47,7 +35,7 @@ dotnet build server/MyStack.slnx     # build
 dotnet test server/MyStack.slnx      # test
 dotnet csharpier format .            # format; CI runs `csharpier check .`
 docker compose up -d                 # postgres + mailpit
-docker compose --profile otel up -d  # ... plus the Aspire dashboard
+docker compose --profile otel up -d  # ... plus the telemetry dashboard
 ```
 
 ## Conventions
@@ -96,6 +84,8 @@ assertion to reach green is not.
   `refactor`, `perf`, `build`, `ci`, `chore`. Scope is the area touched (`auth`, `api`, `web`,
   `jobs`, `email`, `ci`, `docs`) and is omitted when the change is repo-wide. Subject is
   imperative and lower-case. Breaking changes get a `!` and a `BREAKING CHANGE:` footer.
+- **One concern per PR.** One thing, reviewable in one sitting, leaving `main` green and
+  deployable.
 - **Branch, then PR.** `main` is protected: no direct pushes, the `gate` check must pass, squash
   merge, branch deleted on merge.
 - **The PR body says what changed, why, and what it deliberately doesn't do.**

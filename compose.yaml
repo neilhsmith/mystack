@@ -1,8 +1,12 @@
 # Local development infrastructure. Applications are not here yet — they arrive with their own
 # Dockerfiles as they're built.
 #
+# Local only. Mailpit and the telemetry dashboard must never be reachable from a hosted
+# environment: mail silently going nowhere while every send reports success is worse than an
+# outage. A deployed stack gets its own compose file if it ever uses one (D12 is still open).
+#
 #   docker compose up -d                  postgres + mailpit
-#   docker compose --profile otel up -d   also the Aspire dashboard
+#   docker compose --profile otel up -d   also the telemetry dashboard
 #
 # Host ports are env-overridable so a second isolated stack can run alongside this one:
 #   COMPOSE_PROJECT_NAME=mystack2 POSTGRES_PORT=5532 docker compose up -d
@@ -41,16 +45,17 @@ services:
       timeout: 3s
       retries: 5
 
-  # OTLP receiver + UI for traces, metrics and logs. Opt-in (`--profile otel`) rather than
-  # always-on, and anonymous because it is local-only — see docs/architecture.md D1.
-  aspire-dashboard:
+  # OTLP receiver + UI for traces, metrics and logs. Named for the role, not the image: the apps
+  # only ever speak OTLP, so swapping in a different backend is a one-line change here. Opt-in
+  # (`--profile otel`), and anonymous because it is local-only — see docs/architecture.md D1.
+  otel-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.5
     profiles: [otel]
     environment:
       DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: 'true'
     ports:
-      - '${ASPIRE_DASHBOARD_PORT:-18888}:18888' # web UI
-      - '${ASPIRE_OTLP_PORT:-18889}:18889' # OTLP ingest (gRPC)
+      - '${OTEL_DASHBOARD_UI_PORT:-18888}:18888' # web UI
+      - '${OTEL_DASHBOARD_OTLP_PORT:-18889}:18889' # OTLP ingest (gRPC)
 
 volumes:
   postgres-data:

@@ -34,9 +34,10 @@ dotnet tool restore           # csharpier
 | --------------------------------------- | ----------------------- | -------------------------------------------- |
 | Postgres                                | 5432                    | every app's database                         |
 | [Mailpit](http://localhost:8025)        | 8025 (UI), 1025 (SMTP)  | the local inbox — email is genuinely sent    |
-| [Aspire dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `--profile otel`   |
+| [Telemetry dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `--profile otel` |
 
-The Aspire dashboard is opt-in: `docker compose --profile otel up -d`.
+The telemetry dashboard is opt-in: `docker compose --profile otel up -d`. It's the Aspire
+dashboard image today, but the apps only speak OTLP, so any collector can take its place.
 
 ## Working on it
 
