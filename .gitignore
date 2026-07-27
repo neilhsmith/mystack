@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+
+# Secrets and local config
+.env
+.env.local
+*.local.json
+
+# JavaScript (arrives with apps/web)
+node_modules/
+.pnpm-store/
+
+# Editors / OS
+.idea/
+.DS_Store
+Thumbs.db
