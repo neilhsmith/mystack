@@ -220,6 +220,41 @@ Logs and telemetry are load-bearing, not a nice-to-have. They stay.
   function call; request bodies reach spans only through redaction; the resource identity groups
   `api` and `auth` as one product.
 
+#### Metrics — what v1 counts
+
+`MyStack.Observability` ships the pipeline and the host meters (ASP.NET Core, HTTP client, .NET
+runtime, Npgsql). The domain metrics are **named here but land with the feature that emits them** —
+a counter with no emitter is exactly the speculative infrastructure §0 rules out.
+
+| Instrument                  | Tags                   | Lands with                    |
+| --------------------------- | ---------------------- | ----------------------------- |
+| `auth.sign_ins`             | `result`               | the sign-in page (OpenIddict) |
+| `auth.oauth.grants`         | `grant_type`, `result` | the token endpoint (OpenIddict) |
+| `auth.registrations`        | `outcome`              | account flows                 |
+| `auth.email_confirmations`  | `outcome`              | account flows                 |
+| `auth.password_resets`      | `stage`, `outcome`     | account flows                 |
+| `auth.password_changes`     | `outcome`              | account flows                 |
+| `jobs.enqueued`             | `job_type`             | `MyStack.Jobs`                |
+| `jobs.executions`           | `job_type`, `outcome`  | `MyStack.Jobs`                |
+| `email.sends`               | `outcome`              | `MyStack.Email`               |
+
+Two rules make these safe and useful:
+
+- **Tag values come from closed sets.** Never a user id, an email address or anything
+  user-supplied — those belong on spans and logs, where cardinality costs nothing. One unbounded
+  tag value ruins the time series it lives in.
+- **The anti-enumeration flows are why several of these exist.** Register and forgot-password
+  deliberately answer the same 200 whether the account exists or not, so the honest outcome is
+  invisible in responses *by design* — the metric tag (`outcome: unknown_email`) is where it goes
+  instead. An enumeration or credential-stuffing run then shows up as a rate an operator can alert
+  on, without the response giving anything away.
+
+Deliberately not metrics: **seeding** (one-shot boot work is a log line and a span), **health
+probes** (polled — a counter of them measures the orchestrator, not the app), and per-request
+authorization decisions (span attributes; the volume signal is already in
+`http.server.request.duration`'s status tags). Deferred features — delete-account, change-email,
+MFA — bring their counters with them when they land.
+
 ### Background jobs & email — in v1
 
 The mechanism and its first consumer land together. Full design in §3.3.
@@ -770,7 +805,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [ ] **`MyStack.Jobs`** — Hangfire on Postgres, per-app schema, gated dashboard, recurring jobs,
       trace linking (§3.3)
 - [ ] **`MyStack.Email`** — `IEmailSender`, SMTP adapter, message shape, the account emails (§3.3)
-- [ ] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
+- [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
 
 ### apps/web
 

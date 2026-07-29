@@ -75,6 +75,10 @@ First shared library. Auth is its consumer and, for now, its only proof.
 logs over OTLP, the resource identity that will group `api` and `auth` as one product, the
 `[Redact]` attribute, and the log/span enricher that emits `act.sub` when the claim is present.
 
+Metrics here are the **host meters only** (ASP.NET Core, HTTP client, runtime, Npgsql). The domain
+counters are named in architecture §3's metric table and each lands with its emitter — steps 4, 6,
+7 and 8 below — never speculatively in this library.
+
 **Proves:** auth running *by itself* produces traces and structured logs visible in the Aspire
 dashboard. This is the requirement that put this step here rather than later.
 
@@ -87,6 +91,9 @@ dashboard. This is the requirement that put this step here rather than later.
 endpoints; **authorization code + PKCE**; refresh tokens (`offline_access`); config-driven token
 lifetimes; a functional sign-in page (designed in step 10, not here); the claims the token carries
 (`sub`, `role`, `email`, and the shape `perm` / `perm_deny` will occupy).
+
+**Metrics:** `auth.sign_ins` and `auth.oauth.grants` (architecture §3's table) — the sign-in page
+and token endpoint are their emitters, so the counters are part of building them.
 
 **Proves:** `/.well-known/openid-configuration` is correct; a manually registered client completes
 the flow.
@@ -114,6 +121,9 @@ gated behind the Identity cookie plus an admin role check, retry/backoff policy,
 visibility, recurring-job registration, and trace linking between the enqueuing span and the
 executing job's span.
 
+**Metrics:** `jobs.enqueued` and `jobs.executions` on the library's meter — dead-letter visibility
+is a dashboard page for a human, but the `outcome: dead_lettered` tag is what an alert watches.
+
 **Proves:** the dashboard is reachable signed in as an admin and refused otherwise; a job that
 throws retries on schedule and then dead-letters where you can see it.
 
@@ -126,6 +136,9 @@ throws retries on schedule and then dead-letters where you can see it.
 **Lands:** `IEmailSender`, the `EmailMessage` / `EmailAddress` / `EmailAttachment` shape, an SMTP
 adapter (MailKit), `EmailOptions`, and the renderer interface behind which the interpolated-string
 bodies live.
+
+**Metrics:** `email.sends` on the library's meter, tagged by outcome — the delivery-rate signal a
+provider outage moves first.
 
 **Proves:** unit tests against a fake sender, plus an integration test that sends to Mailpit and
 reads the message back through Mailpit's REST API.
@@ -165,6 +178,11 @@ Three things this depends on:
 
 Reset-password uses the same shape, where it is even more natural: GET renders the new-password
 form with the token hidden in it, POST performs the reset.
+
+**Metrics:** `auth.registrations`, `auth.email_confirmations`, `auth.password_resets`,
+`auth.password_changes` (architecture §3's table). These carry the anti-enumeration flows' honest
+outcomes — the `unknown_email` a generic 200 deliberately hides is a tag value here, which is what
+makes an enumeration run visible to an operator without the response giving anything away.
 
 **Proves:** the full failure matrix in tests, plus one integration test that runs the whole thing —
 register, job executes, Mailpit holds the message, extract the link, confirm, sign in. The e2e
