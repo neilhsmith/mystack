@@ -32,3 +32,8 @@ indent_style = tab
 [**/Migrations/*.cs]
 generated_code = true
 dotnet_analyzer_diagnostic.severity = none
+
+# Test names are sentences describing a behaviour. CA1707's no-underscores rule is about public
+# API surface, and a test assembly has none.
+[**/tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none

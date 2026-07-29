@@ -16,8 +16,10 @@ Browser ──fetch /api/*──▶ apps/web (BFF) ──Bearer <jwt>──▶ s
 
 ## What exists today
 
-Only the foundation: the toolchain, the CI gate, and local infrastructure. `server/auth` is next —
-[docs/auth-track.md](docs/auth-track.md) is the working order for building it to done, and
+The foundation — toolchain, CI gate, local infrastructure — and `server/auth`'s host skeleton:
+Identity over EF Core/Postgres, the first migration, health checks and security headers
+([docs/auth.md](docs/auth.md)). No OpenIddict yet, so nothing issues a token.
+[docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 
 ## Getting started
@@ -25,9 +27,10 @@ Only the foundation: the toolchain, the CI gate, and local infrastructure. `serv
 Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), Docker with Compose.
 
 ```bash
-cp .env.example .env          # optional — the defaults work untouched
-docker compose up -d          # postgres + mailpit
-dotnet tool restore           # csharpier
+cp .env.example .env                  # optional — the defaults work untouched
+docker compose up -d                  # postgres + mailpit
+dotnet tool restore                   # csharpier, dotnet-ef
+dotnet run --project server/auth/src  # auth on :5100, migrating on the way up
 ```
 
 | Service                                 | Port                    | For                                          |
@@ -43,8 +46,10 @@ dashboard image today, but the apps only speak OTLP, so any collector can take i
 
 ```bash
 dotnet build server/MyStack.slnx     # build everything .NET
-dotnet test server/MyStack.slnx      # every test project
+dotnet test server/MyStack.slnx      # every test project — needs Docker, the suites run containers
 dotnet csharpier format .            # format (CI runs `csharpier check .`)
+
+dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
 ```
 
 CI runs exactly that as one required `gate` check. `main` is protected: PRs only, gate green,
@@ -55,10 +60,11 @@ squash merge.
 | Doc                                              | Records                                                       |
 | ------------------------------------------------ | --------------------------------------------------------------- |
 | [architecture.md](docs/architecture.md)          | The stack, the layout, the scope boundary, the decisions      |
+| [auth.md](docs/auth.md)                          | `server/auth` — schema, health, security posture              |
 | [auth-track.md](docs/auth-track.md)              | Working doc: the order `server/auth` is being built in        |
 
-Further docs (`auth.md`, `api.md`, `web.md`, `jobs-and-email.md`, `authorization.md`) arrive with
-the things they describe.
+Further docs (`api.md`, `web.md`, `jobs-and-email.md`, `authorization.md`) arrive with the things
+they describe.
 
 ## Licence
 

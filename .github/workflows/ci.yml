@@ -22,10 +22,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          # Central Package Management means every version lives in one file, so it is the whole
-          # restore key. Add **/*.csproj here once projects carry their own package references.
+          # Central Package Management keeps the versions in one file, but which packages each
+          # project asks for still lives in its csproj — both belong in the restore key.
           cache: true
-          cache-dependency-path: server/Directory.Packages.props
+          cache-dependency-path: |
+            server/Directory.Packages.props
+            server/**/*.csproj
 
       - name: Validate compose file
         run: docker compose config --quiet

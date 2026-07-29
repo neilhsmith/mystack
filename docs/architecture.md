@@ -744,7 +744,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 ### server/auth
 
-- [ ] **Host skeleton** — Identity, EF + first migration, health checks, security headers
+- [x] **Host skeleton** — Identity, EF + first migration, health checks, security headers
 - [ ] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
 - [ ] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
       seed-before-serve (§3.4)
