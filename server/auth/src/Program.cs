@@ -12,22 +12,9 @@ builder.Services.AddAuthIdentity();
 builder.Services.AddAuthHealthChecks();
 builder.Services.AddAuthorization();
 
-builder.Services.AddHsts(hsts =>
-{
-    hsts.MaxAge = TimeSpan.FromDays(365);
-    hsts.IncludeSubDomains = true;
-    // Preload is deliberately off: it is a one-way door that puts the domain on a list shipped
-    // inside browsers, which is an operator's decision rather than a framework default.
-});
-
 var app = builder.Build();
 
-app.UseSecurityHeaders();
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHsts();
-}
+app.UseAuthSecurityHeaders();
 
 app.UseAuthentication();
 app.UseAuthorization();

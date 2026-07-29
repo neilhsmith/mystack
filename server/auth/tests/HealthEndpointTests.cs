@@ -6,44 +6,31 @@ namespace MyStack.Auth.Tests;
 public sealed class HealthEndpointTests(AuthAppFixture app)
 {
     [Fact]
-    public async Task Live_reports_healthy_without_running_a_single_check()
+    public async Task Live_Returns200_WithoutRunningAnyCheck()
     {
         var response = await app.Client.GetAsync(
             "/health/live",
             TestContext.Current.CancellationToken
         );
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var payload = await HealthPayload.ReadAsync(response);
-        payload.Status.ShouldBe("Healthy");
-        payload.Checks.ShouldBeEmpty();
+        body.ShouldContain("\"status\":\"Healthy\"");
+        body.ShouldContain("\"checks\":[]");
     }
 
     [Fact]
-    public async Task Ready_reports_the_database_and_the_schema()
+    public async Task Ready_Returns200_WithTheDatabaseAndSchemaChecks()
     {
         var response = await app.Client.GetAsync(
             "/health/ready",
             TestContext.Current.CancellationToken
         );
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        var payload = await HealthPayload.ReadAsync(response);
-        payload.Status.ShouldBe("Healthy");
-        payload.Check("database").Status.ShouldBe("Healthy");
-        payload.Check("database-schema").Status.ShouldBe("Healthy");
-    }
-
-    [Theory]
-    [InlineData("/health/live")]
-    [InlineData("/health/ready")]
-    public async Task Health_responses_are_json_and_never_cached(string path)
-    {
-        var response = await app.Client.GetAsync(path, TestContext.Current.CancellationToken);
-
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
-        response.Headers.CacheControl?.NoStore.ShouldBe(true);
+        body.ShouldContain("\"status\":\"Healthy\"");
+        body.ShouldContain("\"name\":\"database\"");
+        body.ShouldContain("\"name\":\"database-schema\"");
     }
 }

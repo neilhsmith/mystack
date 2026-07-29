@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Testcontainers.PostgreSql;
 
 namespace MyStack.Auth.Tests;
@@ -20,11 +22,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
     {
         await database.StartAsync();
 
-        application = new AuthApplicationFactory(
-            database.GetConnectionString(),
-            migrate: true,
-            AuthApplicationFactory.TestEnvironment
-        );
+        application = new AuthApplicationFactory(database.GetConnectionString());
 
         // CreateClient is what builds the host, so the migration runs here.
         Client = application.CreateClient();
@@ -40,5 +38,24 @@ public sealed class AuthAppFixture : IAsyncLifetime
         }
 
         await database.DisposeAsync();
+    }
+
+    private sealed class AuthApplicationFactory(string connectionString)
+        : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            // Not "Development": that would load appsettings.Development.json and hand the host a
+            // working connection string to the developer's compose database, so a test whose own
+            // configuration never arrived would still pass — against the wrong database.
+            builder.UseEnvironment("Testing");
+
+            // UseSetting, not ConfigureAppConfiguration. Under the minimal hosting model the
+            // factory runs Program's own Main and can only reach its configuration through the
+            // args it passes in — UseSetting becomes `--key=value`, while
+            // ConfigureAppConfiguration delegates are never invoked at all.
+            builder.UseSetting("ConnectionStrings:AuthDb", connectionString);
+            builder.UseSetting("Database:Migrate", "true");
+        }
     }
 }

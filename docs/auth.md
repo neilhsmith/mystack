@@ -80,36 +80,43 @@ where a connection string would reach an unauthenticated response.
 
 ## Security posture
 
-Every response carries, from middleware rather than from any endpoint:
+Headers come from [`NetEscapades.AspNetCore.SecurityHeaders`](https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders)
+as middleware, so a response no endpoint handled carries them too. The policy is the library's
+**API baseline** (`AddDefaultApiSecurityHeaders`) — which keeps the parts that drift as browsers
+move, like the `Permissions-Policy` feature list, maintained upstream instead of by hand — plus
+three tightenings:
 
-| Header | Value |
-| --- | --- |
-| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` |
-| `Permissions-Policy` | the sensitive feature set denied outright |
-| `Referrer-Policy` | `no-referrer` |
-| `X-Content-Type-Options` | `nosniff` |
-| `X-Frame-Options` | `DENY` |
-| `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Cross-Origin-Resource-Policy` | `same-origin` |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, outside development only |
+| Header | Value | |
+| --- | --- | --- |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` | baseline + `base-uri`/`form-action` pinned shut |
+| `Cross-Origin-Resource-Policy` | `same-origin` | baseline says `same-site`; nothing legitimate embeds an auth response |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | baseline lacks `includeSubDomains` |
+| `Permissions-Policy` | the library's maintained deny list | baseline |
+| `Referrer-Policy` | `no-referrer` | baseline |
+| `X-Content-Type-Options` | `nosniff` | baseline |
+| `X-Frame-Options` | `DENY` | baseline |
+| `Cross-Origin-Opener-Policy` | `same-origin` | baseline |
+| `Cross-Origin-Embedder-Policy` | `require-corp` | baseline |
 
 The CSP is written for a host that serves no HTML. The sign-in page has to loosen it deliberately,
 which is the right way round for the one deployable that holds credentials. `Referrer-Policy` is
 `no-referrer` everywhere because confirmation and reset links carry a single-use credential in the
 query string.
 
-HSTS **preload is off**: it puts the domain on a list shipped inside browsers and is painful to
-undo, so it is an operator's decision rather than a framework default. Kestrel's `Server` header is
-suppressed.
+HSTS is emitted by the library on https responses only, with localhost excluded — so development
+never sees it and no environment gate is needed. **Preload is off**: it puts the domain on a list
+shipped inside browsers and is painful to undo, so it is an operator's decision rather than a
+framework default. Kestrel's `Server` header is suppressed.
 
 ## Production hardening — open items
 
 Recorded as they appear, resolved in the finalize pass (auth-track step 10).
 
 - **Forwarded headers are not configured.** Behind a TLS-terminating proxy `Request.Scheme` will be
-  `http`, which OpenIddict's discovery document and redirect URI validation both care about. It
-  waits for a decided deployment topology (architecture D12) because `UseForwardedHeaders` without
-  a `KnownProxies` list is spoofable.
+  `http`, which OpenIddict's discovery document and redirect URI validation both care about — and
+  which also means **HSTS is silently not emitted** there, since the library only writes it on
+  requests it sees as https. It waits for a decided deployment topology (architecture D12) because
+  `UseForwardedHeaders` without a `KnownProxies` list is spoofable.
 - **`Database:Migrate` is not safe for concurrent instances.** EF Core takes no lock around
   `MigrateAsync` here. Architecture §3.4's session-scoped advisory lock has to span migrate *and*
   seed, so it lands with seeding; until then the switch is a development convenience and defaults
