@@ -678,7 +678,7 @@ up. Anything added later gets its own PR and its own doc entry.
 | ETag + `If-Match` optimistic concurrency        | two users genuinely edit the same row and you've lost an update                 |
 | Output caching, cache tags, cache metrics       | a profiler — not a hunch — says a specific endpoint is the bottleneck           |
 | Distributed cache (Redis)                       | you run more than one instance *and* have measured cache pressure               |
-| Coordinated scheduler (Quartz clustering, leader election) | a schedule exists whose missed or duplicated run actually costs something (§3.3 schedules are idempotent maintenance) |
+| Coordinated scheduler (Quartz clustering, leader election) | you scale a host horizontally *and* a schedule exists whose missed or duplicated run actually costs something (§3.3 schedules are idempotent maintenance, where N instances publishing N ticks is harmless) |
 | A designed emails package (React Email → HTML)  | interpolated string bodies stop being good enough to send to a real user        |
 | Postgres full-text / trigram search             | list search is slow with real data volume                                       |
 | The HTTP `QUERY` verb + a filter DSL            | ordinary POST-with-a-body demonstrably can't express what a screen needs        |
@@ -972,8 +972,14 @@ if considered up front and expensive if not.
   anything until there's something worth deploying.
 - **D15 — Production access to the broker's management UI.** RabbitMQ's UI is the queue operator's
   view and it lives in compose for local development only — a deployed environment restricts it to
-  an operator network, never the public internet. The aggregated view (`apps/admin` surfacing both
-  apps' queues and the shared telemetry) wants deciding whenever `apps/admin` does.
+  an operator network, never the public internet. Two candidate resolutions, deliberately open:
+  the aggregated view (`apps/admin` surfacing both apps' queues and the shared telemetry), or
+  wiring the management UI's native OAuth2/OIDC login to our own auth server — RabbitMQ supports
+  logging in through an external identity provider, with token scopes mapped to its permission
+  tags, so admins would sign in with their real accounts instead of broker-local credentials.
+  That needs seeded admin roles and a scope mapping minted into tokens for the RabbitMQ client,
+  so it wants deciding no earlier than the permission-override work, and only if the UI outlives
+  local development at all.
 
 ---
 
