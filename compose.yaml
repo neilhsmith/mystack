@@ -40,6 +40,12 @@ services:
     ports:
       - '${RABBITMQ_PORT:-5672}:5672'
       - '${RABBITMQ_UI_PORT:-15672}:15672'
+    # Cookies are per-host, not per-port, so the browser sends every localhost app's cookies to
+    # the management UI too — and ASP.NET Core's chunked auth cookies alone overflow Cowboy's
+    # 4KB-per-header default, which answers 431. Local-only UI; a bigger budget costs nothing.
+    configs:
+      - source: rabbitmq-advanced
+        target: /etc/rabbitmq/advanced.config
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 10s
@@ -73,3 +79,8 @@ services:
 
 volumes:
   postgres-data:
+
+configs:
+  rabbitmq-advanced:
+    content: |
+      [{rabbitmq_management, [{tcp_config, [{cowboy_opts, [{max_header_value_length, 32768}]}]}]}].
