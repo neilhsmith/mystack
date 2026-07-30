@@ -149,9 +149,14 @@ until it's fully understood. Nothing else in the stack is more expensive to redo
 - OpenIddict authorization server: **authorization code + PKCE** and **refresh tokens**
   (`offline_access`), from day one. No dev-only password grant, ever — that deferral is what made
   the last attempt un-shippable from its first commit.
+- **The full protocol surface**, landed late in the auth track (steps 10–12): userinfo,
+  introspection, **client credentials** for machine clients, the **device flow** with its
+  verification page, **PAR**, and **back-channel logout**. A deliberate scope call: this is a
+  boilerplate and a learning vehicle, so the server is complete, tested and understood rather
+  than trimmed to what the BFF happens to use. The password grant stays out of all of it.
 - Hosted, fully designed browser pages: sign in, register, forgot password, reset password, confirm
-  email, error. No consent screen (D17). Full security-header set (CSP, framing,
-  Permissions-Policy).
+  email, device verification, error. No consent screen (D17). Full security-header set (CSP,
+  framing, Permissions-Policy).
 - Access tokens are JWTs carrying `role` claims plus per-user permission overrides (§3.1). Explicit,
   config-driven lifetimes.
 - Account flows: **register, email confirmation, forgot/reset password, change password.**
@@ -787,6 +792,10 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [x] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
 - [ ] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
       seed-before-serve (§3.4)
+- [ ] **Protocol completion** — userinfo, introspection, client credentials, device flow +
+      verification page, PAR
+- [ ] **Logout notifications** — back-channel logout tokens to registered clients; front-channel
+      decided, not assumed
 - [ ] **Account flows** — register, email confirmation, forgot/reset password, change password,
       anti-enumeration throughout
 - [ ] **Design + finalize pass** — every rendered screen designed rather than scaffolded, walked

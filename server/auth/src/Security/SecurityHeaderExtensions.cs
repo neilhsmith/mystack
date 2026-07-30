@@ -15,7 +15,7 @@ internal static class SecurityHeaderExtensions
             .AddSecurityHeaderPolicies()
             .SetDefaultPolicy(policy => AddAuthPolicy(policy, selfFormAction: false))
             // The one loosening a rendered page needs: its own form has to be able to post back.
-            // Everything else stays pinned; step 10's design pass opens style-src if and when
+            // Everything else stays pinned; the design pass opens style-src if and when
             // there is styling to allow.
             .AddPolicy(PagesPolicy, policy => AddAuthPolicy(policy, selfFormAction: true));
 

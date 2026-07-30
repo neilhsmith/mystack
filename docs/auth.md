@@ -109,7 +109,8 @@ done by hand.
 
 ## The sign-in page
 
-`/signin`, a Razor page — functional now, designed in step 10. It signs into Identity's
+`/signin`, a Razor page — functional now, designed in the design + finalize pass at the end of
+the track. It signs into Identity's
 application cookie; the authorization endpoint challenges to it and the round trip lands back on
 the interrupted request (with `prompt=login` stripped, so honoring that prompt can't loop).
 
@@ -236,7 +237,7 @@ three tightenings:
 The CSP is written for a host that serves no HTML. Rendered pages carry a second, named policy
 differing in exactly one directive — `form-action 'self'`, so the sign-in form can post back to
 itself — which is the right way round for the one deployable that holds credentials: the
-loosening is opt-in per endpoint, and step 10's design pass widens `style-src` only when there is
+loosening is opt-in per endpoint, and the design pass widens `style-src` only when there is
 styling to allow. `Referrer-Policy` is `no-referrer` everywhere because confirmation and reset
 links carry a single-use credential in the query string.
 
@@ -247,7 +248,7 @@ framework default. Kestrel's `Server` header is suppressed.
 
 ## Production hardening — open items
 
-Recorded as they appear, resolved in the finalize pass (auth-track step 10).
+Recorded as they appear, resolved in the finalize pass (auth-track's final step).
 
 - **Forwarded headers are not configured.** Behind a TLS-terminating proxy `Request.Scheme` will be
   `http`, which OpenIddict's discovery document and redirect URI validation both care about — and

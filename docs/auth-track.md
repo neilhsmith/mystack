@@ -18,6 +18,8 @@ Auth is closed when all of these hold:
 
 - [ ] The full authorization-code + PKCE flow works, refreshes, and signs out — driven from a
       committed Bruno collection, not from memory.
+- [ ] The protocol surface is complete and proven from a client's seat: userinfo, introspection,
+      client credentials, the device flow, PAR, and back-channel logout, each tested.
 - [ ] Every account flow works end to end **including its email**: register → confirm, forgot →
       reset, change password → notification.
 - [ ] Every rendered page is designed, not scaffolded, and passes an accessibility pass.
@@ -32,7 +34,7 @@ Auth is closed when all of these hold:
 
 Not "forgotten" — genuinely belonging elsewhere:
 
-- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 10 records that a
+- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 13 records that a
   grant-support-access endpoint is coming, which is the only thing owed now.
 - **The permission catalog** — `server/api` owns it (D10). Auth mints permission strings without
   ever interpreting them, so overrides are testable here with arbitrary values.
@@ -89,7 +91,7 @@ dashboard. This is the requirement that put this step here rather than later.
 
 **Lands:** OpenIddict server configuration; authorization, token, end-session and revocation
 endpoints; **authorization code + PKCE**; refresh tokens (`offline_access`); config-driven token
-lifetimes; a functional sign-in page (designed in step 10, not here); the claims the token carries
+lifetimes; a functional sign-in page (designed in step 13, not here); the claims the token carries
 (`sub`, `role`, `email`, and the shape `perm` / `perm_deny` will occupy).
 
 **Metrics:** `auth.sign_ins` and `auth.oauth.grants` (architecture §3's table) — the sign-in page
@@ -211,16 +213,68 @@ permission string.
 > claim-minting means reopening token generation — the most security-sensitive code here — and
 > that's the difference between "auth is finished" and "auth is finished except".
 
-### 10. Design + finalize
+### 10. The rest of the token surface
+
+The first of three protocol-completion steps: the goal is a **full-featured OAuth/OIDC server**,
+every capability tested from a client's seat and genuinely understood — not just the subset the
+BFF happens to need.
+
+**Lands:** the **userinfo** endpoint (scope-gated claims, reusing the destination logic — the id
+token and userinfo must agree); the **client-credentials grant** for machine clients — a
+confidential client with a secret, a client principal minted at the token endpoint carrying the
+client's own identity and scopes and **no user claims**; **introspection** (RFC 7662) for callers
+that can't validate JWTs locally, permitted to confidential clients only. Seed config grows the
+confidential/machine client shape.
+
+**Metrics:** nothing new — `auth.oauth.grants` already counts every token response, so
+`client_credentials` shows up the moment it exists.
+
+**Proves:** userinfo answers exactly per granted scope; a machine client's token carries its
+client id and scopes with no user's `sub`; introspection says active/inactive truthfully and
+refuses public clients; the password grant is still absent from everything.
+
+### 11. Device flow + PAR
+
+**Lands:** the **device authorization grant** — device + verification endpoints and the
+user-code verification page (functional here, designed in step 13) — for clients without a
+browser or keyboard; **pushed authorization requests** (PAR), with the endpoint on and a
+per-client opt-in requirement, so authorize parameters can travel the back channel instead of the
+URL.
+
+**Proves:** the whole device dance from tests — poll while `authorization_pending`, enter the
+user code signed in, approve, poll again and receive tokens — plus a PAR round trip driving the
+normal code flow off a `request_uri`.
+
+### 12. Logout notifications
+
+**Lands:** **back-channel logout** — per-client `backchannel_logout_uri` config and a signed
+logout token POSTed to every registered client when a session ends, which is what makes sign-out
+propagate once `apps/web` and `apps/admin` share the SSO session. OpenIddict provides the
+end-session protocol but not this notification layer, so it is custom work — the reason it has
+its own step. Front-channel logout is **decided** here rather than assumed (likely rejected in
+favor of back-channel; record why).
+
+**Proves:** ending a session delivers valid logout tokens to fake RPs registered in tests; the
+consumer side lands with each BFF, not here.
+
+### 13. Design + finalize
 
 **Lands:** every rendered page designed rather than scaffolded — sign in, register, forgot password,
-reset password, confirm email, error; there is no consent page (architecture D17) — plus an
-accessibility pass. The Bruno collection committed. `docs/auth.md` written. A production-hardening review. A note recording that
+reset password, confirm email, device verification, error; there is no consent page (architecture
+D17) — plus an accessibility pass. The Bruno collection committed. `docs/auth.md` written. A
+production-hardening review. A note recording that
 a grant-support-access endpoint is coming, so "auth is finished" doesn't quietly mean "auth is
 closed to impersonation" (plan §3.2's first seam).
 
 **Proves:** the full suite green, a conformance-suite run, and an end-to-end walkthrough of the
 whole project until it is genuinely understood rather than merely working.
+
+> **Styling note for the design pass.** Tailwind works here without crossing the ecosystem
+> boundary: the standalone CLI scans `.cshtml` files and emits one static stylesheet auth serves
+> itself — a build step, no Node at runtime. React components are **not** reused on these pages
+> (§2's rule, and a credentials host must not depend on a JS bundle); visual parity with the
+> future component library comes from sharing the utility classes and design tokens, consciously
+> duplicated like the role names in §3.4.
 
 ---
 
