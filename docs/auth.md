@@ -3,23 +3,26 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton, telemetry, and the OpenIddict server**: ASP.NET Core
-Identity over EF Core/Postgres, health checks, the security-header set, `MyStack.Observability`
-wired in, and OpenIddict issuing tokens — authorization code + PKCE with refresh tokens, the four
-protocol endpoints, a functional sign-in page, request logging and the first domain counters.
-There is no seeding and no account flow yet, so clients and users are still created by hand.
+**What exists today is the host skeleton, telemetry, the OpenIddict server, and messaging**:
+ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
+`MyStack.Observability` wired in, OpenIddict issuing tokens — authorization code + PKCE with
+refresh tokens, the four protocol endpoints, a functional sign-in page, request logging and the
+first domain counters — and `MyStack.Messaging` speaking Wolverine over RabbitMQ, with the daily
+token-prune flowing through the broker. There is no seeding and no account flow yet, so clients
+and users are still created by hand.
 [auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
 is the inventory.
 
 ## Running it
 
 ```bash
-docker compose up -d                  # postgres
+docker compose up -d                  # postgres + rabbitmq + mailpit
 dotnet run --project server/auth/src  # http://localhost:5100
 ```
 
 Development migrates on boot, so a fresh database needs nothing else. The protocol surface hangs
-off `/.well-known/openid-configuration`; the sign-in page is `/signin`.
+off `/.well-known/openid-configuration`; the sign-in page is `/signin`. The broker's queues live
+in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 
 ## Configuration
 
@@ -31,6 +34,8 @@ off `/.well-known/openid-configuration`; the sign-in page is `/signin`.
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
 | `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
 | `Oidc:RefreshTokenLifetime` | `14.00:00:00` | Absolute horizon; the token itself rotates on every use. |
+| `ConnectionStrings:MessageBroker` | none | Required, same no-fallback rule as the database: failing to boot beats silently dropping messages. |
+| `Messaging:RetryCooldownsInSeconds` | `[1, 5, 30]` | Seconds between redelivery attempts after a handler throws, one entry per retry; past the last one the message dead-letters. Tests set `[0]`. |
 
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
@@ -39,8 +44,9 @@ infrastructure credentials, not secrets — every other environment supplies
 ## The schema
 
 Identity's tables live in a Postgres schema named **`auth`**, inside the same database `server/api`
-will use. That is the split `MyStack.Jobs` also assumes when it puts its tables in `hangfire_auth`
-(architecture §3.3), so both apps can share one Postgres instance without sharing a namespace.
+will use. That is the split `MyStack.Messaging` also assumes when it puts its envelope storage in
+`wolverine_auth` (architecture §3.3), so the hosts share one Postgres instance without sharing a
+namespace.
 
 Naming is snake_case throughout, via `EFCore.NamingConventions` — EF Core 10 has no built-in
 convention for it. Identity's `AspNet*` table names are replaced with `users`, `roles`,
@@ -123,6 +129,37 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 - The page runs under its own security-header policy, which differs from the default in exactly
   one directive: `form-action 'self'`.
 
+## Messaging
+
+`server/shared/MyStack.Messaging` wires Wolverine over RabbitMQ with the stack's conventions —
+auth is its first host, `server/worker` its second (architecture §3.3):
+
+- **Auth consumes exactly its own queue** (`auth` — every app's queue is named after it), and
+  Wolverine persists envelopes durably in the **`wolverine_auth`** schema before they ride the
+  broker, so a crash between publish and broker-ack loses nothing. Which messages auth publishes
+  is declared in auth's own composition root, not in the library.
+- **A handler that throws retries on the cooldown schedule** (`Messaging:RetryCooldownsInSeconds`)
+  **and then dead-letters** into the broker's `wolverine-dead-letter-queue` — parked where the
+  management UI can inspect, shovel back or delete it, never silently dropped.
+- **The first real flow is the token prune**: `oidc_tokens` and `oidc_authorizations` gain rows
+  on every sign-in and OpenIddict never deletes them on its own, so
+  `AddScheduledMessage<PruneOidcTokens>("0 3 * * *")` publishes the message daily and auth's own
+  handler prunes expired and invalidated entries older than 30 days — comfortably past the 14-day
+  refresh horizon, and `PruneAsync` itself never touches a live grant. Auth handles this itself
+  because pruning touches auth's tables; cross-app work (email, step 7) goes to the worker's
+  queue instead. Scheduling is one declarative line per schedule: the library's clock publishes
+  and the handler's queue owns everything else. Cron strings are validated at boot (Cronos), and
+  the semantics are deliberate — a missed tick skips, a duplicate publish is safe, because
+  schedules carry idempotent maintenance work.
+- **Traces cross the queue on their own.** Wolverine propagates W3C context and publishes the
+  `Wolverine` activity source plus a `Wolverine:auth` meter (`wolverine-messages-sent`,
+  `wolverine-execution-time`, `wolverine-execution-failure`, `wolverine-dead-letter-queue` — the
+  last one is the alert signal), both subscribed by `MyStack.Observability`.
+- **Handlers may depend on framework services.** The library sets Wolverine's
+  `ServiceLocationPolicy` to allowed: the v6 default forbids service location in generated handler
+  code, which would ban dependencies on anything factory-registered — OpenIddict's managers, which
+  the prune handler injects, are exactly that.
+
 ## Health
 
 Two endpoints, both unauthenticated, both `no-store`.
@@ -166,18 +203,21 @@ dashboard that isn't running.
 
 What auth emits today:
 
-- **Traces** — inbound requests (ASP.NET Core), outbound HTTP, and Npgsql's database spans.
-  `/health/*` requests are filtered out: probes are polled forever, and their spans would be most
-  of the volume while answering nothing. Their child queries drop with them (the default sampler is
-  parent-based); the boot-time migration queries stay, as root spans of real work.
-- **Metrics** — the host meters (ASP.NET Core, HTTP client, .NET runtime, Npgsql) plus the first
-  two domain counters from [architecture §3's table](architecture.md): `auth.sign_ins`, tagged
+- **Traces** — inbound requests (ASP.NET Core), outbound HTTP, Npgsql's database spans, and
+  Wolverine's publish/receive/handle spans, which carry W3C context across the queue (see
+  Messaging). `/health/*` requests are filtered out: probes are polled forever, and their spans
+  would be most of the volume while answering nothing. Their child queries drop with them (the
+  default sampler is parent-based); the boot-time migration queries stay, as root spans of real
+  work.
+- **Metrics** — the host meters (ASP.NET Core, HTTP client, .NET runtime, Npgsql) plus the domain
+  counters from [architecture §3's table](architecture.md): `auth.sign_ins`, tagged
   `result` (`success`, `invalid_credentials`, `locked_out`, `not_allowed`,
   `requires_two_factor`), and `auth.oauth.grants`, tagged `grant_type` and `result`. Grants are
   counted where every token response passes (OpenIddict's `ApplyTokenResponse` event), so
   protocol rejections — a password-grant attempt, a bad PKCE verifier — are counted too;
-  client-supplied grant types collapse to a closed set first. Domain meters follow the
-  `MyStack.<App>` naming convention, which the library subscribes by wildcard.
+  client-supplied grant types collapse to a closed set first. Wolverine adds its own
+  `Wolverine:auth` meter. Domain meters and activity sources follow the `MyStack.*` naming
+  convention, which the library subscribes by wildcard.
 - **Logs** — every log line, with scopes and the formatted message.
 
 ### Request logging

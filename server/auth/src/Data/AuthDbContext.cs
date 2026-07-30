@@ -9,7 +9,7 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
     : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options)
 {
     // auth and api share one Postgres database and take a schema each — the same split that gives
-    // MyStack.Jobs its hangfire_auth / hangfire_api schemas (docs/architecture.md §3.3).
+    // MyStack.Messaging its wolverine_<app> envelope schemas (docs/architecture.md §3.3).
     public const string Schema = "auth";
 
     protected override void OnModelCreating(ModelBuilder builder)

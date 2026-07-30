@@ -7,7 +7,13 @@
     <Project Path="auth/tests/MyStack.Auth.Tests.csproj" />
   </Folder>
   <Folder Name="/shared/">
+    <Project Path="shared/MyStack.Messaging/src/MyStack.Messaging.csproj" />
+    <Project Path="shared/MyStack.Messaging/tests/MyStack.Messaging.Tests.csproj" />
     <Project Path="shared/MyStack.Observability/src/MyStack.Observability.csproj" />
     <Project Path="shared/MyStack.Observability/tests/MyStack.Observability.Tests.csproj" />
+  </Folder>
+  <Folder Name="/worker/">
+    <Project Path="worker/src/MyStack.Worker.csproj" />
+    <Project Path="worker/tests/MyStack.Worker.Tests.csproj" />
   </Folder>
 </Solution>

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using MyStack.Auth.Data;
 using OpenIddict.Abstractions;
 using Testcontainers.PostgreSql;
+using Testcontainers.RabbitMq;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace MyStack.Auth.Tests;
@@ -19,10 +20,14 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public const string PostLogoutRedirectUri = "http://localhost/signed-out";
     public const string DefaultPassword = "a perfectly adequate passphrase";
 
-    // The image compose runs, so the migration is proven against the Postgres the stack actually
-    // uses rather than whatever `latest` happens to be.
+    // The images compose runs, so the migration and the broker topology are proven against what
+    // the stack actually uses rather than whatever `latest` happens to be.
     private readonly PostgreSqlContainer database = new PostgreSqlBuilder(
         "postgres:18-alpine"
+    ).Build();
+
+    private readonly RabbitMqContainer broker = new RabbitMqBuilder(
+        "rabbitmq:4-management-alpine"
     ).Build();
 
     private AuthApplicationFactory? application;
@@ -77,9 +82,13 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await database.StartAsync();
+        await Task.WhenAll(database.StartAsync(), broker.StartAsync());
 
-        application = new AuthApplicationFactory(database.GetConnectionString(), Logs);
+        application = new AuthApplicationFactory(
+            database.GetConnectionString(),
+            broker.GetConnectionString(),
+            Logs
+        );
 
         // CreateClient is what builds the host, so the migration runs here.
         Client = application.CreateClient();
@@ -97,6 +106,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
         }
 
         await database.DisposeAsync();
+        await broker.DisposeAsync();
     }
 
     private async Task RegisterTestClientAsync()
@@ -146,6 +156,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
     private sealed class AuthApplicationFactory(
         string connectionString,
+        string brokerConnectionString,
         RecordingLoggerProvider logs
     ) : WebApplicationFactory<Program>
     {
@@ -161,7 +172,12 @@ public sealed class AuthAppFixture : IAsyncLifetime
             // args it passes in — UseSetting becomes `--key=value`, while
             // ConfigureAppConfiguration delegates are never invoked at all.
             builder.UseSetting("ConnectionStrings:AuthDb", connectionString);
+            builder.UseSetting("ConnectionStrings:MessageBroker", brokerConnectionString);
             builder.UseSetting("Database:Migrate", "true");
+
+            // One immediate retry: a retry-then-dead-letter sequence is provable in seconds
+            // instead of the production cooldowns' minutes.
+            builder.UseSetting("Messaging:RetryCooldownsInSeconds:0", "0");
 
             builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs));
         }

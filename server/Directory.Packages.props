@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup Label="Applications">
+    <PackageVersion Include="Cronos" Version="0.13.0" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
@@ -24,6 +25,9 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
+    <PackageVersion Include="WolverineFx.Postgresql" Version="6.24.1" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.24.1" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.24.1" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">
@@ -32,6 +36,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <PackageVersion Include="Testcontainers.RabbitMq" Version="4.13.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>

@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../shared/MyStack.Messaging/src/MyStack.Messaging.csproj" />
     <ProjectReference Include="../../shared/MyStack.Observability/src/MyStack.Observability.csproj" />
   </ItemGroup>
 

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cronos" />
+    <PackageReference Include="WolverineFx.Postgresql" />
+    <PackageReference Include="WolverineFx.RabbitMQ" />
+    <!-- Wolverine generates its handler pipeline as code; the Roslyn compiler that builds it at
+         runtime ships separately and auto-registers when referenced. Pre-generating statically
+         (`codegen write`) is a deployment optimization recorded in the docs, not a default. -->
+    <PackageReference Include="WolverineFx.RuntimeCompilation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MyStack.Messaging.Tests" />
+  </ItemGroup>
+</Project>

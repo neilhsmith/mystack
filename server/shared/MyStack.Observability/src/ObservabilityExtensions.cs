@@ -70,6 +70,13 @@ public static class ObservabilityExtensions
                     // Npgsql publishes its own ActivitySource and Meter, so database work needs a
                     // name subscribed, not a package.
                     .AddSource("Npgsql")
+                    // Wolverine's spans — publish, receive, handle — cross the queue with W3C
+                    // context intact, so a message's execution appears under the trace that sent
+                    // it.
+                    .AddSource("Wolverine")
+                    // Same convention as the meter wildcard below: any ActivitySource under
+                    // MyStack.* is subscribed the moment it exists.
+                    .AddSource("MyStack.*")
             )
             .WithMetrics(metrics =>
                 metrics
@@ -77,6 +84,8 @@ public static class ObservabilityExtensions
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
                     .AddMeter("Npgsql")
+                    // Wolverine's meter is named Wolverine:<app>, so the wildcard is load-bearing.
+                    .AddMeter("Wolverine*")
                     // Any domain meter a host creates under the MyStack.* naming convention is
                     // subscribed the moment it exists — architecture §3's counters land with
                     // their emitters without reopening this library.

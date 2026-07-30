@@ -7,6 +7,7 @@ and a web front end that talks to both without the browser ever seeing a token.
 | ------------- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
 | `server/auth` | .NET — ASP.NET Core + OpenIddict + Identity + EF | Owns users, credentials, roles and permission overrides. Issues JWTs.            |
 | `server/api`  | .NET — ASP.NET Core + FastEndpoints + EF         | Resource server. Validates JWTs from `auth`. Every error is ProblemDetails.      |
+| `server/worker` | .NET — Wolverine over RabbitMQ                 | Background worker. Consumes messages from its own queue — email delivery next.   |
 | `apps/web`    | TanStack Start (React)                           | BFF + SPA. Does the OIDC dance server-side, holds tokens in an httpOnly cookie.  |
 | `apps/admin`  | TanStack Start (React)                           | Admin console — post-v1, designed for but outside the v1 scope boundary.         |
 
@@ -17,10 +18,13 @@ Browser ──fetch /api/*──▶ apps/web (BFF) ──Bearer <jwt>──▶ s
 ## What exists today
 
 The foundation — toolchain, CI gate, local infrastructure — and `server/auth` through its
-OpenIddict server: Identity over EF Core/Postgres, health checks and security headers,
-`server/shared/MyStack.Observability` (traces, metrics and logs over OTLP, request logging), and
-token issuance via authorization code + PKCE with refresh tokens and a functional sign-in page
-([docs/auth.md](docs/auth.md)). No seeding and no account flows yet.
+OpenIddict server and messaging: Identity over EF Core/Postgres, health checks and security
+headers, `server/shared/MyStack.Observability` (traces, metrics and logs over OTLP, request
+logging), token issuance via authorization code + PKCE with refresh tokens and a functional
+sign-in page, and `server/shared/MyStack.Messaging` — Wolverine over RabbitMQ with per-app queues,
+a retry-then-dead-letter policy, and the `server/worker` deployable consuming alongside auth,
+whose daily token-prune flows through the broker ([docs/auth.md](docs/auth.md)). No seeding and
+no account flows yet.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 

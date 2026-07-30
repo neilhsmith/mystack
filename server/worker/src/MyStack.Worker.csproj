@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>mystack-worker</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NetEscapades.AspNetCore.SecurityHeaders" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../shared/MyStack.Messaging/src/MyStack.Messaging.csproj" />
+    <ProjectReference Include="../../shared/MyStack.Observability/src/MyStack.Observability.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MyStack.Worker.Tests" />
+  </ItemGroup>
+</Project>
