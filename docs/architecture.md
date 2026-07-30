@@ -491,9 +491,15 @@ Properties that are load-bearing and easy to get wrong:
   `Wolverine` activity source and a `Wolverine:<app>` meter, both subscribed by
   `MyStack.Observability` — a failed handler is traceable back to the request that published the
   message with nothing hand-written.
-- **Scheduling stays boring.** Cron is the one thing the broker doesn't replace: auth's daily
-  token-prune is a plain timer hosted service publishing a message. If recurring work ever needs
-  cluster-wide coordination, that's the trigger to reach for something real, not before.
+- **Scheduling stays boring — and declarative.** Cron is the one thing the broker doesn't
+  replace, so the library carries a clock and nothing more:
+  `AddScheduledMessage<PruneOidcTokens>("0 3 * * *")` publishes the message at every occurrence
+  (Cronos parses the cron, validated at boot), and the handler's queue owns retries,
+  dead-lettering and telemetry exactly as if anything else had published it. An instance that is
+  down at a tick skips it; two instances both publish — schedules carry idempotent
+  maintenance-style work, and a schedule where a missed or duplicated run actually costs
+  something is the §4 trigger for a coordinated scheduler (Quartz's clustering, leader
+  election), not before.
 
 One deliberate cost, recorded honestly: Wolverine generates its handler pipeline as code at
 startup (the `WolverineFx.RuntimeCompilation` package). Pre-generating it (`codegen write` +
@@ -672,7 +678,7 @@ up. Anything added later gets its own PR and its own doc entry.
 | ETag + `If-Match` optimistic concurrency        | two users genuinely edit the same row and you've lost an update                 |
 | Output caching, cache tags, cache metrics       | a profiler — not a hunch — says a specific endpoint is the bottleneck           |
 | Distributed cache (Redis)                       | you run more than one instance *and* have measured cache pressure               |
-| Transactional outbox                            | atomicity is needed where §3.3's `TransactionScope` pattern can't reach (different stores, cross-service) |
+| Coordinated scheduler (Quartz clustering, leader election) | a schedule exists whose missed or duplicated run actually costs something (§3.3 schedules are idempotent maintenance) |
 | A designed emails package (React Email → HTML)  | interpolated string bodies stop being good enough to send to a real user        |
 | Postgres full-text / trigram search             | list search is slow with real data volume                                       |
 | The HTTP `QUERY` verb + a filter DSL            | ordinary POST-with-a-body demonstrably can't express what a screen needs        |

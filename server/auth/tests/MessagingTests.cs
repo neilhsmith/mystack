@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using MyStack.Auth.Messaging;
+using MyStack.Messaging;
 using OpenIddict.Abstractions;
 using Shouldly;
 using Wolverine;
@@ -47,21 +48,16 @@ public sealed class MessagingTests(AuthAppFixture app)
         );
     }
 
-    // The scheduler's only logic worth owning is the next-run arithmetic; the timer loop itself
-    // is the framework's.
-    [Theory]
-    [InlineData("2026-07-30T01:30:00Z", "01:30:00")]
-    [InlineData("2026-07-30T03:00:00Z", "1.00:00:00")]
-    [InlineData("2026-07-30T17:45:00Z", "09:15:00")]
-    public void Scheduler_WaitsUntilTheNextThreeAmUtc(string nowText, string expectedDelay)
+    // The schedule itself: declared once in Program, enumerable here — the clock loop belongs to
+    // MyStack.Messaging and is tested there.
+    [Fact]
+    public void PruneSchedule_IsDeclared()
     {
-        var now = DateTimeOffset.Parse(
-            nowText,
-            null,
-            System.Globalization.DateTimeStyles.AdjustToUniversal
-        );
+        var schedule = app.Services.GetServices<ScheduledMessage>().ShouldHaveSingleItem();
 
-        PruneScheduler.DelayUntilNextRun(now).ShouldBe(TimeSpan.Parse(expectedDelay, null));
+        schedule.MessageType.ShouldBe(nameof(PruneOidcTokens));
+        schedule.Cron.ShouldBe("0 3 * * *");
+        schedule.Factory().ShouldBeOfType<PruneOidcTokens>();
     }
 
     private async Task<int> CountTokensAsync(string subject, CancellationToken cancellationToken)

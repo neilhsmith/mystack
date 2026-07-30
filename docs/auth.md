@@ -141,14 +141,16 @@ auth is its first host, `server/worker` its second (architecture §3.3):
 - **A handler that throws retries on the cooldown schedule** (`Messaging:RetryCooldownsInSeconds`)
   **and then dead-letters** into the broker's `wolverine-dead-letter-queue` — parked where the
   management UI can inspect, shovel back or delete it, never silently dropped.
-- **The first real flow is `prune-oidc-tokens`**: `oidc_tokens` and `oidc_authorizations` gain
-  rows on every sign-in and OpenIddict never deletes them on its own, so a timer hosted service
-  publishes `PruneOidcTokens` daily at 03:00 UTC and auth's own handler prunes expired and
-  invalidated entries older than 30 days — comfortably past the 14-day refresh horizon, and
-  `PruneAsync` itself never touches a live grant. Auth handles this itself because pruning touches
-  auth's tables; cross-app work (email, step 7) goes to the worker's queue instead. The timer
-  stays a plain `PeriodicTimer`-style service on purpose: pruning is idempotent, so a missed
-  window or a duplicate publish costs nothing.
+- **The first real flow is the token prune**: `oidc_tokens` and `oidc_authorizations` gain rows
+  on every sign-in and OpenIddict never deletes them on its own, so
+  `AddScheduledMessage<PruneOidcTokens>("0 3 * * *")` publishes the message daily and auth's own
+  handler prunes expired and invalidated entries older than 30 days — comfortably past the 14-day
+  refresh horizon, and `PruneAsync` itself never touches a live grant. Auth handles this itself
+  because pruning touches auth's tables; cross-app work (email, step 7) goes to the worker's
+  queue instead. Scheduling is one declarative line per schedule: the library's clock publishes
+  and the handler's queue owns everything else. Cron strings are validated at boot (Cronos), and
+  the semantics are deliberate — a missed tick skips, a duplicate publish is safe, because
+  schedules carry idempotent maintenance work.
 - **Traces cross the queue on their own.** Wolverine propagates W3C context and publishes the
   `Wolverine` activity source plus a `Wolverine:auth` meter (`wolverine-messages-sent`,
   `wolverine-execution-time`, `wolverine-execution-failure`, `wolverine-dead-letter-queue` — the

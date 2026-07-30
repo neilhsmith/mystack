@@ -128,8 +128,9 @@ writes nothing; `Database:Seed:Sample` in a production environment throws rather
 **Lands:** Wolverine over RabbitMQ behind `server/shared/MyStack.Messaging` — per-app queues with
 durable envelope storage in `wolverine_<app>` schemas, the retry-cooldowns-then-dead-letter
 policy, W3C trace propagation across the queue — plus the `server/worker` deployable consuming its
-own queue, and auth's first real flow: `PruneOidcTokens` published daily by a timer and handled by
-auth itself (pruning touches auth's tables, so no other deployable may do it).
+own queue, and auth's first real flow: `PruneOidcTokens` declared as a scheduled message
+(`AddScheduledMessage`, daily) and handled by auth itself (pruning touches auth's tables, so no
+other deployable may do it).
 
 **Metrics:** Wolverine's own `Wolverine:<app>` meter — `wolverine-execution-failure` and
 `wolverine-dead-letter-queue` are the alert signals; the broker's management UI is the human's

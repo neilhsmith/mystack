@@ -1,7 +1,9 @@
+using Cronos;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Resources;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Wolverine;
 using Wolverine.ErrorHandling;
@@ -91,7 +93,44 @@ public static class MessagingExtensions
         // Wolverine owns its schema the way EF owns the app's.
         builder.Host.UseResourceSetupOnStartup();
 
+        builder.Services.AddHostedService<MessageScheduler>();
+
         return builder;
+    }
+
+    /// <summary>
+    /// Publishes a <typeparamref name="TMessage"/> at every occurrence of <paramref name="cron"/>
+    /// (UTC; five fields, or six to include seconds). Scheduling is just a clock over the message
+    /// pipeline — the handler's queue owns retries, dead-lettering and telemetry — so an instance
+    /// that is down when a tick passes skips it, and two instances both publish: schedules carry
+    /// idempotent maintenance-style work.
+    /// </summary>
+    public static IServiceCollection AddScheduledMessage<TMessage>(
+        this IServiceCollection services,
+        string cron
+    )
+        where TMessage : class, new() => services.AddScheduledMessage(cron, () => new TMessage());
+
+    /// <summary>The factory overload, for scheduled messages that carry data.</summary>
+    public static IServiceCollection AddScheduledMessage<TMessage>(
+        this IServiceCollection services,
+        string cron,
+        Func<TMessage> factory
+    )
+        where TMessage : class
+    {
+        // Parsed here so a typo'd cron fails the boot, not silently at its first tick.
+        var format =
+            cron.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length == 6
+                ? CronFormat.IncludeSeconds
+                : CronFormat.Standard;
+        var expression = CronExpression.Parse(cron, format);
+
+        services.AddSingleton(
+            new ScheduledMessage(cron, expression, factory, typeof(TMessage).Name)
+        );
+
+        return services;
     }
 
     internal static string SchemaFor(string appName) => $"wolverine_{appName}";

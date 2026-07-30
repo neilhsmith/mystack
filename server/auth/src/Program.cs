@@ -35,7 +35,7 @@ builder.AddMessaging(
         options.PublishMessage<PruneOidcTokens>().ToRabbitQueue("auth");
     }
 );
-builder.Services.AddHostedService<PruneScheduler>();
+builder.Services.AddScheduledMessage<PruneOidcTokens>("0 3 * * *");
 builder.Services.AddSingleton<AuthMetrics>();
 builder.Services.AddRazorPages();
 builder.Services.AddAuthHealthChecks();
