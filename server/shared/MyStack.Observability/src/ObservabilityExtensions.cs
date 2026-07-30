@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,6 +28,21 @@ public static class ObservabilityExtensions
             console.IncludeScopes = true;
             console.TimestampFormat = "HH:mm:ss ";
         });
+
+        // The request envelope — method, path, status, duration — and nothing more. Bodies wait
+        // for the [Redact] masking machinery (architecture §3), and query strings are left out
+        // because auth's carry confirm/reset tokens; a host whose queries are worth logging
+        // (api's paging) opts in by post-configuring HttpLoggingOptions.
+        builder.Services.AddHttpLogging(logging =>
+        {
+            logging.LoggingFields =
+                HttpLoggingFields.RequestMethod
+                | HttpLoggingFields.RequestPath
+                | HttpLoggingFields.ResponseStatusCode
+                | HttpLoggingFields.Duration;
+            logging.CombineLogs = true;
+        });
+        builder.Services.AddHttpLoggingInterceptor<HealthRequestLoggingSuppressor>();
 
         var telemetry = builder
             .Services.AddOpenTelemetry()
@@ -61,6 +77,10 @@ public static class ObservabilityExtensions
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
                     .AddMeter("Npgsql")
+                    // Any domain meter a host creates under the MyStack.* naming convention is
+                    // subscribed the moment it exists — architecture §3's counters land with
+                    // their emitters without reopening this library.
+                    .AddMeter("MyStack.*")
             )
             .WithLogging(
                 configureBuilder: null,
@@ -91,6 +111,13 @@ public static class ObservabilityExtensions
     /// </summary>
     public static IApplicationBuilder UseActorEnrichment(this IApplicationBuilder app) =>
         app.UseMiddleware<ActorEnrichmentMiddleware>();
+
+    /// <summary>
+    /// Logs one envelope line per request. Register it early — outside the exception handler in
+    /// particular, so the envelope records the status the client actually received.
+    /// </summary>
+    public static IApplicationBuilder UseRequestLogging(this IApplicationBuilder app) =>
+        app.UseHttpLogging();
 
     private static string? ApplicationVersion(IHostEnvironment environment)
     {

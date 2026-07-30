@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace MyStack.Auth.Data;
 
@@ -10,6 +11,13 @@ internal static class IdentityExtensions
             .AddIdentity<ApplicationUser, ApplicationRole>(options =>
             {
                 options.User.RequireUniqueEmail = true;
+
+                // OIDC claim types instead of Identity's SOAP-era defaults, so the cookie
+                // principal and every token OpenIddict mints speak the same names.
+                options.ClaimsIdentity.UserIdClaimType = Claims.Subject;
+                options.ClaimsIdentity.UserNameClaimType = Claims.Name;
+                options.ClaimsIdentity.RoleClaimType = Claims.Role;
+                options.ClaimsIdentity.EmailClaimType = Claims.Email;
 
                 // Confirmation is a v1 account flow, so the gate is on from the first account
                 // rather than switched on later over users who never went through it.
@@ -28,6 +36,8 @@ internal static class IdentityExtensions
             // them here means the account flows fail at startup if they ever go missing, not in
             // production at the moment someone asks for a reset.
             .AddDefaultTokenProviders();
+
+        services.ConfigureApplicationCookie(cookie => cookie.LoginPath = "/signin");
 
         return services;
     }

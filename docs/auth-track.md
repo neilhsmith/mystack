@@ -214,8 +214,8 @@ permission string.
 ### 10. Design + finalize
 
 **Lands:** every rendered page designed rather than scaffolded — sign in, register, forgot password,
-reset password, confirm email, consent (if used), error — plus an accessibility pass. The Bruno
-collection committed. `docs/auth.md` written. A production-hardening review. A note recording that
+reset password, confirm email, error; there is no consent page (architecture D17) — plus an
+accessibility pass. The Bruno collection committed. `docs/auth.md` written. A production-hardening review. A note recording that
 a grant-support-access endpoint is coming, so "auth is finished" doesn't quietly mean "auth is
 closed to impersonation" (plan §3.2's first seam).
 
@@ -259,7 +259,10 @@ compose profile rather than running always-on.
   means a bad redirect URI in config silently rewrites a working client on the next boot. The
   descriptor diff limits the blast radius to real changes, but this is still config-driven mutation
   of live authorization config. Decide deliberately.
-- **Consent screen: used or not?** (step 4) The seeded clients are first-party, so implicit consent
-  is defensible — but that decision should be made rather than inherited.
-- **Token lifetimes** (step 4) — plan §3.1 assumes roughly 15 minutes for the access token, because
-  that bounds override-revocation latency. Confirm the number and write it down.
+- **Consent screen — resolved in step 4: not used** (architecture D17). Every v1 client is
+  first-party and registered with implicit consent, and the authorization endpoint refuses any
+  other registration — so onboarding a third-party client reopens the decision rather than
+  inheriting this one.
+- **Token lifetimes — resolved in step 4: 15 minutes for the access token**, committed as
+  configuration (`Oidc:*` in `appsettings.json`, documented in auth.md) rather than prose:
+  identity token 15 minutes, authorization code 5, refresh token 14 days with rotation.

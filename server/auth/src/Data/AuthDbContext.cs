@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.EntityFrameworkCore.Models;
 
 namespace MyStack.Auth.Data;
 
@@ -26,6 +27,13 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
         builder.Entity<IdentityUserLogin<Guid>>().ToTable("user_logins");
         builder.Entity<IdentityUserToken<Guid>>().ToTable("user_tokens");
         builder.Entity<IdentityRoleClaim<Guid>>().ToTable("role_claims");
+
+        // Same rename rationale: the defaults would snake_case into open_iddict_* here.
+        builder.UseOpenIddict();
+        builder.Entity<OpenIddictEntityFrameworkCoreApplication>().ToTable("oidc_applications");
+        builder.Entity<OpenIddictEntityFrameworkCoreAuthorization>().ToTable("oidc_authorizations");
+        builder.Entity<OpenIddictEntityFrameworkCoreScope>().ToTable("oidc_scopes");
+        builder.Entity<OpenIddictEntityFrameworkCoreToken>().ToTable("oidc_tokens");
 
         // The application owns key generation (see ApplicationUser), so EF must not substitute a
         // value generator or read one back from the database.

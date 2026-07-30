@@ -3,9 +3,11 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton plus telemetry**: ASP.NET Core Identity over EF
-Core/Postgres, the first migration, health checks, the security-header set, and
-`MyStack.Observability` wired in. There is no OpenIddict, no rendered page and no account flow yet.
+**What exists today is the host skeleton, telemetry, and the OpenIddict server**: ASP.NET Core
+Identity over EF Core/Postgres, health checks, the security-header set, `MyStack.Observability`
+wired in, and OpenIddict issuing tokens — authorization code + PKCE with refresh tokens, the four
+protocol endpoints, a functional sign-in page, request logging and the first domain counters.
+There is no seeding and no account flow yet, so clients and users are still created by hand.
 [auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
 is the inventory.
 
@@ -16,7 +18,8 @@ docker compose up -d                  # postgres
 dotnet run --project server/auth/src  # http://localhost:5100
 ```
 
-Development migrates on boot, so a fresh database needs nothing else.
+Development migrates on boot, so a fresh database needs nothing else. The protocol surface hangs
+off `/.well-known/openid-configuration`; the sign-in page is `/signin`.
 
 ## Configuration
 
@@ -24,6 +27,10 @@ Development migrates on boot, so a fresh database needs nothing else.
 | --- | --- | --- |
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
+| `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
+| `Oidc:IdentityTokenLifetime` | `00:15:00` | |
+| `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
+| `Oidc:RefreshTokenLifetime` | `14.00:00:00` | Absolute horizon; the token itself rotates on every use. |
 
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
@@ -53,6 +60,67 @@ instead of fragmenting it. Generating them in the entity rather than the databas
   carries the strength, and mandatory character classes mostly produce predictable substitutions.
 - Default token providers are registered, so email confirmation and password reset have their
   tokens available when those flows arrive.
+- Identity's principal uses the OIDC claim types (`sub`, `name`, `role`, `email`) instead of its
+  SOAP-era defaults, so the cookie and every token OpenIddict mints speak the same names.
+
+## The OpenIddict server
+
+OpenIddict 7 over the same `AuthDbContext` — its tables live in the `auth` schema as
+`oidc_applications`, `oidc_authorizations`, `oidc_scopes` and `oidc_tokens`, renamed for the same
+reason Identity's were.
+
+| Endpoint | Path | Handled by |
+| --- | --- | --- |
+| Discovery + JWKS | `/.well-known/openid-configuration` | OpenIddict entirely |
+| Authorization | `/connect/authorize` | passthrough: cookie check, implicit-consent check, principal |
+| Token | `/connect/token` | passthrough: user re-validated against the store, claims rebuilt |
+| End session | `/connect/endsession` | passthrough: Identity sign-out, then the validated post-logout redirect |
+| Revocation | `/connect/revocation` | OpenIddict entirely |
+
+**Authorization code + PKCE and refresh tokens are the only flows.** PKCE is required globally
+rather than per client, so no future registration can quietly opt out. **There is no password
+grant, in any environment** — `grant_types_supported` in the discovery document is exactly
+`[authorization_code, refresh_token]`, and the test suite asserts it.
+
+**Lifetimes are configuration** — the `Oidc:*` keys above, with the defaults committed in
+`appsettings.json`. Refresh tokens rotate: every refresh issues a new one, and the token endpoint
+re-validates the user against the store on each exchange, so role and email changes take effect on
+the next refresh rather than surviving to the token's horizon.
+
+**Claim destinations are deny-by-default.** `email`, `role` and `name` reach the access token —
+plus the identity token when their scope was granted; the `perm`/`perm_deny` shape (overrides,
+auth-track step 9) is declared access-token-only; anything unlisted — Identity's security stamp,
+concretely — reaches no token at all, which the flow test proves. A token granted an `api.*` scope
+carries `aud: api`. Access tokens are signed but **not encrypted** JWTs: `server/api` validates
+them against the discovery document rather than sharing auth's key material.
+
+**Keys.** Development uses the framework's development certificates; tests use ephemeral in-memory
+keys so CI never writes a certificate store; any other environment must supply real signing and
+encryption credentials deliberately, and OpenIddict refuses to boot without them (see the
+hardening items).
+
+**No consent screen** (architecture D17). Every v1 client is first-party and registered with
+implicit consent; the authorization endpoint refuses a client registered any other way, so a
+future third-party client forces the decision to be remade rather than silently inheriting it.
+
+**No clients are seeded yet** — that is auth-track step 5. The test suite registers its own
+public + PKCE client through `IOpenIddictApplicationManager`; a manual local flow needs the same
+done by hand.
+
+## The sign-in page
+
+`/signin`, a Razor page — functional now, designed in step 10. It signs into Identity's
+application cookie; the authorization endpoint challenges to it and the round trip lands back on
+the interrupted request (with `prompt=login` stripped, so honoring that prompt can't loop).
+
+- **One generic failure message.** Unknown email, wrong password, unconfirmed account and lockout
+  all read identically — anti-enumeration (architecture §3) — and the honest outcome goes to the
+  `auth.sign_ins` metric tag instead.
+- **Lockout is on**: failed attempts count against Identity's defaults (five tries, five minutes).
+- **`ReturnUrl` is followed only when local.** It is attacker-writable, and an absolute URL there
+  is a phishing redirect hanging off a legitimate sign-in.
+- The page runs under its own security-header policy, which differs from the default in exactly
+  one directive: `form-action 'self'`.
 
 ## Health
 
@@ -101,9 +169,34 @@ What auth emits today:
   `/health/*` requests are filtered out: probes are polled forever, and their spans would be most
   of the volume while answering nothing. Their child queries drop with them (the default sampler is
   parent-based); the boot-time migration queries stay, as root spans of real work.
-- **Metrics** — the host meters only: ASP.NET Core, HTTP client, .NET runtime, Npgsql. The domain
-  counters are [architecture §3's table](architecture.md) and each lands with its emitter.
+- **Metrics** — the host meters (ASP.NET Core, HTTP client, .NET runtime, Npgsql) plus the first
+  two domain counters from [architecture §3's table](architecture.md): `auth.sign_ins`, tagged
+  `result` (`success`, `invalid_credentials`, `locked_out`, `not_allowed`,
+  `requires_two_factor`), and `auth.oauth.grants`, tagged `grant_type` and `result`. Grants are
+  counted where every token response passes (OpenIddict's `ApplyTokenResponse` event), so
+  protocol rejections — a password-grant attempt, a bad PKCE verifier — are counted too;
+  client-supplied grant types collapse to a closed set first. Domain meters follow the
+  `MyStack.<App>` naming convention, which the library subscribes by wildcard.
 - **Logs** — every log line, with scopes and the formatted message.
+
+### Request logging
+
+One envelope line per request — method, path, status, duration — via ASP.NET Core's HTTP-logging
+middleware, configured in `MyStack.Observability` so `api` inherits the same shape.
+
+- `/health/*` is suppressed by an interceptor — the same reasoning as the span filter.
+- **Query strings are never logged here**: confirm/reset tokens ride them, the same reason span
+  query-redaction stays on. `api`, whose query strings are paging, opts in by post-configuring
+  `HttpLoggingOptions`.
+- Bodies wait for the `[Redact]` masking machinery (architecture §3); response bodies are never
+  logged.
+- Volume is ordinary log configuration: the `Microsoft.AspNetCore.HttpLogging` category is
+  `Information` in `appsettings.json`, and any environment can quiet it (or turn on more fields)
+  through standard `Logging:LogLevel` configuration.
+
+Unhandled exceptions are caught inside the request log — the envelope records the 500 the client
+actually received — logged with the trace id, and answered as a ProblemDetails body carrying
+`traceId`. The exception message itself never reaches the response.
 
 The resource identity is `service.namespace=mystack`, `service.name=auth` — the namespace is what
 groups `api` and `auth` as one product in a telemetry backend that sees more than this stack. The
@@ -140,10 +233,12 @@ three tightenings:
 | `Cross-Origin-Opener-Policy` | `same-origin` | baseline |
 | `Cross-Origin-Embedder-Policy` | `require-corp` | baseline |
 
-The CSP is written for a host that serves no HTML. The sign-in page has to loosen it deliberately,
-which is the right way round for the one deployable that holds credentials. `Referrer-Policy` is
-`no-referrer` everywhere because confirmation and reset links carry a single-use credential in the
-query string.
+The CSP is written for a host that serves no HTML. Rendered pages carry a second, named policy
+differing in exactly one directive — `form-action 'self'`, so the sign-in form can post back to
+itself — which is the right way round for the one deployable that holds credentials: the
+loosening is opt-in per endpoint, and step 10's design pass widens `style-src` only when there is
+styling to allow. `Referrer-Policy` is `no-referrer` everywhere because confirmation and reset
+links carry a single-use credential in the query string.
 
 HSTS is emitted by the library on https responses only, with localhost excluded — so development
 never sees it and no environment gate is needed. **Preload is off**: it puts the domain on a list
@@ -163,3 +258,8 @@ Recorded as they appear, resolved in the finalize pass (auth-track step 10).
   `MigrateAsync` here. Architecture §3.4's session-scoped advisory lock has to span migrate *and*
   seed, so it lands with seeding; until then the switch is a development convenience and defaults
   off.
+- **OpenIddict key material outside development is not configured.** Development uses the dev
+  certificates and tests use ephemeral keys; a deployed environment has to supply signing and
+  encryption credentials deliberately — a certificate from the environment, never one generated
+  on boot — and startup throws without them. Deciding the source (file, store, secret manager)
+  belongs with the deployment topology (architecture D12).

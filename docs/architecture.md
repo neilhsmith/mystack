@@ -150,7 +150,8 @@ until it's fully understood. Nothing else in the stack is more expensive to redo
   (`offline_access`), from day one. No dev-only password grant, ever — that deferral is what made
   the last attempt un-shippable from its first commit.
 - Hosted, fully designed browser pages: sign in, register, forgot password, reset password, confirm
-  email, consent (if used), error. Full security-header set (CSP, framing, Permissions-Policy).
+  email, error. No consent screen (D17). Full security-header set (CSP, framing,
+  Permissions-Policy).
 - Access tokens are JWTs carrying `role` claims plus per-user permission overrides (§3.1). Explicit,
   config-driven lifetimes.
 - Account flows: **register, email confirmation, forgot/reset password, change password.**
@@ -324,9 +325,9 @@ as the token that carries it, and at most until its own expiry.
 
 Consequences, stated honestly because they're the price of the simplicity above:
 
-- **Revocation latency is bounded by the access-token lifetime** (~15 min). Removing an override
-  takes effect on the next token. The immediate kill switch is revoking the user's grants/refresh
-  token, which forces re-authentication.
+- **Revocation latency is bounded by the access-token lifetime** — 15 minutes, configured as
+  `Oidc:AccessTokenLifetime`. Removing an override takes effect on the next token. The immediate
+  kill switch is revoking the user's grants/refresh token, which forces re-authentication.
 - **Token size grows with overrides.** They're meant to be exceptional. If a role's worth of
   permissions ends up as per-user grants, the answer is a new role, not more claims.
 - **Auth can't validate permission names.** A typo'd override is silently inert. The admin console
@@ -783,7 +784,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 ### server/auth
 
 - [x] **Host skeleton** — Identity, EF + first migration, health checks, security headers
-- [ ] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
+- [x] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
 - [ ] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
       seed-before-serve (§3.4)
 - [ ] **Account flows** — register, email confirmation, forgot/reset password, change password,
@@ -914,6 +915,11 @@ if considered up front and expensive if not.
   no seed artifact is shared between them. Roles and scopes stay code-declared because §3.1 fixes
   them in code. The production bootstrap admin gets no password: it's activated through the normal
   reset flow, which exists and is tested. Full design in §3.4.
+- **D17 — No consent screen in v1.** Every client is first-party — the web BFF, the admin
+  console, a dev client — so implicit consent is the honest description, not a shortcut. Enforced
+  rather than assumed: clients are registered with `ConsentType = Implicit` and the authorization
+  endpoint refuses any client registered otherwise, so onboarding a third-party client forces
+  this decision to be remade instead of silently inheriting it.
 
 ### Still open
 
