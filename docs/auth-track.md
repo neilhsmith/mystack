@@ -95,6 +95,13 @@ lifetimes; a functional sign-in page (designed in step 10, not here); the claims
 **Metrics:** `auth.sign_ins` and `auth.oauth.grants` (architecture §3's table) — the sign-in page
 and token endpoint are their emitters, so the counters are part of building them.
 
+**Request logging:** arrives here, with the first real traffic to log. The envelope only — method,
+path, status, duration — via ASP.NET Core's built-in HTTP logging middleware, wired in
+`MyStack.Observability` so `api` inherits the same shape. `/health/*` is filtered, and query
+strings are excluded on auth for the same reason its span query-redaction stays on: confirm/reset
+tokens ride them. The exception handler that logs unhandled errors and answers a ProblemDetails 500
+lands with it. Bodies wait for the `[Redact]` masking machinery (architecture §3).
+
 **Proves:** `/.well-known/openid-configuration` is correct; a manually registered client completes
 the flow.
 

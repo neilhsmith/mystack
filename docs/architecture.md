@@ -215,7 +215,10 @@ Logs and telemetry are load-bearing, not a nice-to-have. They stay.
   a compose profile, not always-on. See D1 for why this isn't adopting Aspire.
 - **`[Redact]` attribute** for masking sensitive request fields in logs and span attributes. This
   matters more now than before: filter and search values travel in POST bodies, so body logging is
-  exactly where PII would leak.
+  exactly where PII would leak. Until the masking machinery exists, request logging is
+  envelope-only — method, path, status, duration; the machinery lands with its first body-logging
+  consumer (`server/api`, whose POST-body filters are the reason to want bodies at all), and
+  response bodies are never logged.
 - Telemetry conventions, carried over because they were right: a span is a **unit of work**, not a
   function call; request bodies reach spans only through redaction; the resource identity groups
   `api` and `auth` as one product.
