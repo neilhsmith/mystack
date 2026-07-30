@@ -47,6 +47,7 @@ A reusable boilerplate for spinning up new apps.
 | ------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `server/auth` | .NET — ASP.NET Core + OpenIddict + Identity + EF | OAuth2/OIDC authorization server. Owns users, credentials, roles, and permission overrides. Issues JWTs.      |
 | `server/api`  | .NET — ASP.NET Core + FastEndpoints + EF         | Resource server. Validates JWTs from `auth`. Business logic lives in endpoints. Every error is ProblemDetails. |
+| `server/worker` | .NET — Generic host + Wolverine              | Background worker. Consumes messages from its own queue — email delivery when it lands. No HTTP surface beyond health. |
 | `apps/web`    | TanStack Start (React)                           | BFF + SPA. Does the OIDC dance server-side, holds tokens in an httpOnly cookie, proxies the browser to `api`. |
 | `apps/admin`  | TanStack Start (React) — **post-v1**             | Admin console: user search, role/permission administration, impersonation. Designed for, outside the v1 scope boundary. |
 
@@ -93,8 +94,11 @@ mystack/
 │  ├─ auth/
 │  │  ├─ src/                       # MyStack.Auth.csproj
 │  │  └─ tests/                     # MyStack.Auth.Tests.csproj
-│  ├─ shared/                       # .NET libraries shared by api + auth
-│  │  ├─ MyStack.Jobs/              # Hangfire setup, conventions, telemetry, test seam
+│  ├─ worker/
+│  │  ├─ src/                       # MyStack.Worker.csproj — the consuming host
+│  │  └─ tests/                     # MyStack.Worker.Tests.csproj
+│  ├─ shared/                       # .NET libraries shared across the hosts
+│  │  ├─ MyStack.Messaging/         # Wolverine + RabbitMQ conventions, durability, test seam
 │  │  ├─ MyStack.Email/             # IEmailSender + SMTP, message shape, renderers
 │  │  └─ MyStack.Observability/
 │  │     ├─ src/
@@ -123,9 +127,9 @@ twenty lines is cheaper than a shared library you have to version in your head.
 
 **Exactly three qualify, and the list is closed** until something new earns its way on:
 
-- **`MyStack.Jobs`** — background work is stack-wide infrastructure by definition. `auth` consumes it
-  for account email; `api` exercises it with a demo job in its first slice, which is also how it
-  stays tested from both sides.
+- **`MyStack.Messaging`** — messaging is stack-wide infrastructure by definition: every host speaks
+  to the same broker with the same durability, retry and telemetry conventions. `auth` consumes it
+  first; the worker is its second host from day one.
 - **`MyStack.Email`** — `auth` is the only sender in v1, so this one is shared *ahead* of its second
   consumer, deliberately. Email is not an identity concern; putting it inside `auth` would say it
   was, and the move later is pure churn. Recorded as a knowing exception, not an oversight.
@@ -243,8 +247,7 @@ a counter with no emitter is exactly the speculative infrastructure §0 rules ou
 | `auth.email_confirmations`  | `outcome`              | account flows                 |
 | `auth.password_resets`      | `stage`, `outcome`     | account flows                 |
 | `auth.password_changes`     | `outcome`              | account flows                 |
-| `jobs.enqueued`             | `job_type`             | `MyStack.Jobs`                |
-| `jobs.executions`           | `job_type`, `outcome`  | `MyStack.Jobs`                |
+| `wolverine-messages-sent` / `-succeeded` / `-execution-failure` / `-dead-letter-queue` | `message.type`, … | Wolverine's own meter (`Wolverine:<app>`) — not hand-written |
 | `email.sends`               | `outcome`              | `MyStack.Email`               |
 
 Two rules make these safe and useful:
@@ -264,20 +267,23 @@ authorization decisions (span attributes; the volume signal is already in
 `http.server.request.duration`'s status tags). Deferred features — delete-account, change-email,
 MFA — bring their counters with them when they land.
 
-### Background jobs & email — in v1
+### Background work & email — in v1
 
 The mechanism and its first consumer land together. Full design in §3.3.
 
-- **Hangfire on Postgres**, wrapped by `server/shared/MyStack.Jobs`: durable enqueue, retries with
-  backoff, dead-lettering, recurring/scheduled jobs, and an authorization-gated dashboard.
-- **One Hangfire server per app, against its own schema.** The library is setup, conventions,
-  telemetry and the test seam — never a shared queue.
-- **`IEmailSender` over SMTP** in `server/shared/MyStack.Email`. Account emails are enqueued, never
+- **Wolverine over RabbitMQ**, wrapped by `server/shared/MyStack.Messaging`: durable pub/sub with a
+  Postgres-backed inbox/outbox, retries with cooldowns, and a native dead-letter queue visible in
+  the broker's management UI.
+- **Every app consumes exactly its own queue**, with envelope durability in its own
+  `wolverine_<app>` schema. The library is setup, conventions, telemetry and the test seam — which
+  messages an app publishes is the app's own declaration.
+- **`server/worker` is the consuming host** for cross-app work: an endpoint publishes an event and
+  the worker handles it on its own, with retries, failure handling and the dead-letter queue all
+  underneath. Email is its first real consumer.
+- **`IEmailSender` over SMTP** in `server/shared/MyStack.Email`. Account emails are published, never
   sent inline from a request.
 - **Mailpit in `compose.yaml`** — local development sends genuine SMTP to a real inbox with a web UI
   and a REST API the e2e suite reads.
-- `server/api` carries a demo job in the Projects/Tasks slice, so the mechanism is proven from both
-  apps rather than only the one that needed it first.
 
 ### Cross-cutting
 
@@ -448,43 +454,53 @@ local and fast, delivery is retried with backoff, and a send that truly fails la
 can see it and replay it. That is a problem the product has on the day it has a register button —
 which is the test §0 demands, and this passes it.
 
-### Hangfire
+### Wolverine over RabbitMQ
 
-**Hangfire on Postgres**, behind `server/shared/MyStack.Jobs`. It is the mainstream .NET choice and
-the reason is the operator story: a dashboard showing queued, processing, scheduled, succeeded and
-failed jobs, with the exception attached and a button to requeue by hand. Retries, dead-lettering
-and cron-style recurring jobs come with it rather than being written.
+**Wolverine on RabbitMQ**, behind `server/shared/MyStack.Messaging`. A real message broker rather
+than an in-process job library, because the shape this stack actually wants is *an endpoint
+publishes an event and a separate worker handles it on its own* — with retries, failure handling
+and a dead-letter queue underneath, none of it hand-written. Wolverine is the library choice
+because the long-time .NET standard, MassTransit, went commercial with v9 (its open-source v8 line
+leaves maintenance at the end of 2026), and Wolverine is the strongest open-source successor:
+MIT-licensed, transport-agnostic (RabbitMQ today; Azure Service Bus, SQS, Kafka or a pure-Postgres
+transport are configuration), a Postgres-backed durable inbox/outbox, and OpenTelemetry
+instrumentation built in. RabbitMQ is the broker because queue semantics — per-message
+acknowledgement, native dead-lettering, a management UI with requeue — are exactly the operator
+story, and its management UI (compose, `:15672`) is where a parked message gets inspected and
+shoveled back.
 
-Four properties that are load-bearing and easy to get wrong:
+Properties that are load-bearing and easy to get wrong:
 
-- **Each app runs its own Hangfire server against its own schema** (`hangfire_auth`, `hangfire_api`).
-  A single shared schema would have either app dequeuing the other's jobs and needing the other's
-  types loadable — two deployables coupled through a table, which is exactly the sort of mechanism
-  this rebuild exists to avoid. The shared library is setup, conventions, telemetry, and the testing
-  seam. **It is not a shared queue.**
-- **The dashboard is unauthenticated by default** and is gated behind an authorization filter, never
-  exposed publicly. In `auth` the cookie session gates it naturally. `api` authenticates bearer
-  tokens only, so a browser has no way to log into its dashboard — in v1 that dashboard is
-  development plus restricted-network only. A production-grade route for it is genuinely open; the
-  most likely answer is that `apps/admin` grows a jobs screen rather than `api` growing a UI.
-- **`Enqueue` does not join your EF transaction — unless you ask.** By default Hangfire writes its
-  own tables through its own connection, so "user created" and "confirmation email enqueued" are two
-  writes, not one; the failure mode is a created account with no email sent, and
-  resend-confirmation recovers it. **Verified while building this** (`MyStack.Jobs` pins
-  `EnableTransactionScopeEnlistment`, the 1.21 default): wrapping the `SaveChanges` and the
-  `Enqueue` in one `TransactionScope` makes them genuinely atomic — both commit or both roll back —
-  because Npgsql reuses one physical connection for same-connection-string enlistments, so it stays
-  a single local Postgres transaction. Three constraints keep it honest: it is opt-in per call
-  site, both writes must use the *same* connection string (a variant string means a second
-  physical connection and a distributed-transaction escalation .NET on Linux refuses), and it does
-  not compose with `Database.BeginTransaction()` — EF's own transaction is invisible to Hangfire's
-  connection. The §4 outbox row now guards only the cases outside those constraints.
-- **Trace context does not propagate into a job by itself.** The enqueuing span and the executing
-  job's span are linked explicitly, so a failed email is traceable back to the request that asked
-  for it. `mystack-old`'s `TraceLinkedJobExtensions` is the reference.
+- **Every app consumes exactly its own queue** (`auth`, `worker`, `api` when it arrives), and
+  envelopes persist durably in the app's own `wolverine_<app>` Postgres schema. Cross-app work is
+  *published to* another app's queue; nothing ever competes for another app's messages, so no
+  deployable needs another's types loadable. The shared library is setup, conventions, telemetry
+  and the testing seam — which messages an app publishes is the app's own declaration, made where
+  the app configures itself.
+- **A handler that throws retries on a cooldown schedule** (`Messaging:RetryCooldownsInSeconds`,
+  [1, 5, 30] by default) **and then dead-letters** into the broker's `wolverine-dead-letter-queue`
+  — visible, inspectable and replayable in the management UI, never silently dropped.
+  `wolverine-execution-failure` and `wolverine-dead-letter-queue` counters come from Wolverine's
+  own meter; the dead-letter counter is what an alert watches.
+- **The transactional outbox is the mechanism, not an option**: Wolverine persists outgoing
+  envelopes in Postgres before they ride the broker, and its EF Core integration makes a
+  `SaveChanges` and a publish genuinely atomic — the account flows wire that up when "user created
+  + confirmation email published" becomes real (auth-track). Until then the durable outbox already
+  means a crash between publish and broker-ack loses nothing.
+- **Trace context crosses the queue on its own.** Wolverine propagates W3C context and exposes the
+  `Wolverine` activity source and a `Wolverine:<app>` meter, both subscribed by
+  `MyStack.Observability` — a failed handler is traceable back to the request that published the
+  message with nothing hand-written.
+- **Scheduling stays boring.** Cron is the one thing the broker doesn't replace: auth's daily
+  token-prune is a plain timer hosted service publishing a message. If recurring work ever needs
+  cluster-wide coordination, that's the trigger to reach for something real, not before.
 
-Licence note: Hangfire.Core is LGPL v3. Fine to link in a closed application, worth knowing before
-it's load-bearing.
+One deliberate cost, recorded honestly: Wolverine generates its handler pipeline as code at
+startup (the `WolverineFx.RuntimeCompilation` package). Pre-generating it (`codegen write` +
+`TypeLoadMode.Static`) is a deployment optimization for later, not a default. And the library sets
+`ServiceLocationPolicy.AlwaysAllowed`: Wolverine 6 forbids service location in generated code by
+default, which would ban handlers from depending on factory-registered framework services —
+OpenIddict's managers are exactly that.
 
 ### Email
 
@@ -707,8 +723,8 @@ done with only API tests.
 | Web units           | `apps/web/src/**/*.test` | BFF seams, factories, schemas, logic-bearing components       |
 | The user's flow     | `apps/web/e2e`           | The whole product, real containers: it actually works         |
 
-A job is tested from both ends — that the endpoint enqueued it, and that executing it does what it
-claims — never by asserting Hangfire works. Email assertions go through Mailpit's REST API, so
+A message is tested from both ends — that it was published, and that handling it does what it
+claims — never by asserting Wolverine works. Email assertions go through Mailpit's REST API, so
 "a confirmation email arrived and its link confirms the account" is proven end to end in e2e.
 
 Every protected endpoint tests its full matrix: 401 anonymous, 403 wrong scope, 403 right scope but
@@ -818,10 +834,16 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [ ] **Seeding** — same two-tier model and mechanics as `auth`, written separately (§3.4)
 - [ ] **OpenAPI export** — spec generation plus a CI drift check
 
+### server/worker
+
+- [x] **Consuming host** — health endpoints, observability, `MyStack.Messaging` wired to its own
+      queue; the pipeline (publish → handle → retry → dead-letter) proven by its test suite
+- [ ] **Email delivery** — the first real consumer, landing with `MyStack.Email` (§3.3)
+
 ### Shared .NET libraries
 
-- [x] **`MyStack.Jobs`** — Hangfire on Postgres, per-app schema, gated dashboard, recurring jobs,
-      trace linking (§3.3)
+- [x] **`MyStack.Messaging`** — Wolverine over RabbitMQ, per-app queues and envelope schemas,
+      retry→dead-letter policy, trace propagation (§3.3)
 - [ ] **`MyStack.Email`** — `IEmailSender`, SMTP adapter, message shape, the account emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
 
@@ -910,14 +932,17 @@ if considered up front and expensive if not.
   config so support and debugging aren't obstructed; production can't. Read-only falls out of the
   existing scope layer for free; write access is a separate permission. It depends on the override
   store and `apps/admin`; §3.2 records the four seams to leave open in the meantime.
-- **D13 — Background jobs are v1, on Hangfire, shared, with scheduling.** The queue's consumer is
-  account email and it exists from the register button, so it passes the no-speculative-infra test
-  (§0). Hangfire over a hand-rolled Postgres queue for the operator story — a dashboard that shows
-  what failed and requeues it — accepting a non-transactional `Enqueue` as the price (§3.3).
-  Recurring/scheduled jobs land with it rather than as a second pass, because they're the same
-  mechanism and splitting them would mean reopening the setup. `MyStack.Jobs` and `MyStack.Email`
-  are shared libraries from day one, which is a **deliberate exception** to §2's duplicate-first
-  rule: both are stack-wide by nature, and `api` proves it with a demo job in its first slice.
+- **D13 — Background work is v1, on a real message broker: Wolverine over RabbitMQ.** The queue's
+  consumer is account email and it exists from the register button, so it passes the
+  no-speculative-infra test (§0). This decision was **remade during the build**: it began as
+  Hangfire (in-process job servers per app), and was replaced before merging because the shape this
+  boilerplate actually wants is pub/sub with an independent worker — and because the .NET
+  landscape moved, with MassTransit v9 going commercial while Wolverine (MIT) became the
+  open-source standard. RabbitMQ's management UI carries the operator story a job dashboard used
+  to; the durable outbox makes publish-with-SaveChanges atomicity a wired-in mechanism instead of
+  a `TransactionScope` trick (§3.3). `MyStack.Messaging` and `MyStack.Email` are shared libraries
+  from day one, which is a **deliberate exception** to §2's duplicate-first rule: both are
+  stack-wide by nature, and `server/worker` is the second messaging host from day one.
 - **D14 — Local development sends real email, to Mailpit.** One SMTP sender in every environment,
   differing only by host. The alternative — a logging sender in dev — creates a code path that only
   runs locally and a flow that is never actually exercised until production. Mailpit costs one
@@ -939,10 +964,10 @@ if considered up front and expensive if not.
 
 - **D12 — Deployment mechanism.** Compose + an SSH-based GitHub Action, or Kamal. Doesn't block
   anything until there's something worth deploying.
-- **D15 — Production access to `api`'s Hangfire dashboard.** `auth`'s is gated by its cookie
-  session; `api` has no cookie auth, so a browser can't log into its dashboard. Development and
-  restricted-network only for now. Most likely resolution: `apps/admin` grows a jobs screen over an
-  API endpoint rather than `api` serving a UI — so this wants deciding whenever `apps/admin` does.
+- **D15 — Production access to the broker's management UI.** RabbitMQ's UI is the queue operator's
+  view and it lives in compose for local development only — a deployed environment restricts it to
+  an operator network, never the public internet. The aggregated view (`apps/admin` surfacing both
+  apps' queues and the shared telemetry) wants deciding whenever `apps/admin` does.
 
 ---
 

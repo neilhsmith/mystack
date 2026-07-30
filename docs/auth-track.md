@@ -123,24 +123,25 @@ writes nothing; `Database:Seed:Sample` in a production environment throws rather
 > **Checkpoint.** Run the complete authorization-code + PKCE dance from Bruno against a seeded
 > client. Decode the token. Confirm the claims, the lifetimes, and that refresh works.
 
-### 6. `MyStack.Jobs`
+### 6. `MyStack.Messaging` + `server/worker`
 
-**Lands:** Hangfire + `Hangfire.PostgreSql` on the `hangfire_auth` schema, the dashboard mounted and
-gated behind the Identity cookie plus an admin role check, retry/backoff policy, dead-letter
-visibility, recurring-job registration, and trace linking between the enqueuing span and the
-executing job's span.
+**Lands:** Wolverine over RabbitMQ behind `server/shared/MyStack.Messaging` — per-app queues with
+durable envelope storage in `wolverine_<app>` schemas, the retry-cooldowns-then-dead-letter
+policy, W3C trace propagation across the queue — plus the `server/worker` deployable consuming its
+own queue, and auth's first real flow: `PruneOidcTokens` published daily by a timer and handled by
+auth itself (pruning touches auth's tables, so no other deployable may do it).
 
-**Metrics:** `jobs.enqueued` and `jobs.executions` on the library's meter — dead-letter visibility
-is a dashboard page for a human, but the `outcome: dead_lettered` tag is what an alert watches.
+**Metrics:** Wolverine's own `Wolverine:<app>` meter — `wolverine-execution-failure` and
+`wolverine-dead-letter-queue` are the alert signals; the broker's management UI is the human's
+view of the same parked messages.
 
-**Proves:** the dashboard is reachable signed in as an admin and refused otherwise; a job that
-throws retries on schedule and then dead-letters where you can see it.
+**Proves:** a message published to a queue is handled by that host with its own DI; a handler that
+throws retries on the cooldown schedule and then dead-letters where the management UI can see and
+replay it; the prune actually deletes a long-expired token when its message arrives.
 
-> **Resolved** (plan §3.3 records it): with `TransactionScope` enlistment on — the shipped
-> default — a `SaveChanges` and an `Enqueue` wrapped in one scope commit or roll back together,
-> as one local Postgres transaction, provided both use the same connection string. Opt-in per
-> call site; a bare `Enqueue` is still its own write. The §4 outbox row now guards only what the
-> pattern can't reach.
+> **Resolved** (plan §3.3 records it): atomicity of "app write + publish" is the durable outbox's
+> job, wired through Wolverine's EF Core integration when the account flows land in step 8 — a
+> mechanism, not a `TransactionScope` pattern. The §4 outbox row is retired by construction.
 
 ### 7. `MyStack.Email`
 
@@ -159,7 +160,8 @@ reads the message back through Mailpit's REST API.
 The first real consumer of steps 6 and 7.
 
 **Lands:** register + email confirmation, forgot/reset password, change password, and a
-password-changed notification. Every email enqueued through `MyStack.Jobs`. Anti-enumeration
+password-changed notification. Every email is published through `MyStack.Messaging` and delivered
+by the worker, with the EF outbox making "user created + email published" atomic. Anti-enumeration
 throughout — generic 200s, never "that email doesn't exist".
 
 **Carry over from `mystack-old`:** the confirmation link points at a page that POSTs on click rather
@@ -300,7 +302,8 @@ seed config so neither can reach a deployed environment.
 
 | Service | Port | For |
 | --- | --- | --- |
-| Postgres | 5432 | auth's database, and Hangfire's `hangfire_auth` schema |
+| Postgres | 5432 | auth's database, and Wolverine's `wolverine_*` envelope schemas |
+| RabbitMQ | 5672 (AMQP), 15672 (management UI) | the message broker; the UI shows queues and the dead-letter queue |
 | Mailpit | 8025 (UI), 1025 (SMTP) | the inbox — auth genuinely sends here |
 | Aspire Dashboard | 18888 (UI), 18889 (OTLP) | traces, metrics and structured logs in one place |
 
@@ -310,7 +313,6 @@ compose profile rather than running always-on.
 
 ## Open items to resolve along the way
 
-- **`Hangfire.PostgreSql` transaction enlistment** (step 6) — plan §3.3.
 - **Does production reconcile OIDC clients, or only ensure they exist?** (step 5) Full reconcile
   means a bad redirect URI in config silently rewrites a working client on the next boot. The
   descriptor diff limits the blast radius to real changes, but this is still config-driven mutation

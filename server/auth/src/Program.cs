@@ -1,11 +1,13 @@
 using MyStack.Auth.Data;
 using MyStack.Auth.Health;
-using MyStack.Auth.Jobs;
+using MyStack.Auth.Messaging;
 using MyStack.Auth.Oidc;
 using MyStack.Auth.Security;
 using MyStack.Auth.Telemetry;
-using MyStack.Jobs;
+using MyStack.Messaging;
 using MyStack.Observability;
+using Wolverine;
+using Wolverine.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,8 +21,21 @@ builder.Services.AddAuthSecurityHeaders();
 builder.Services.AddAuthDatabase(builder.Configuration);
 builder.Services.AddAuthIdentity();
 builder.AddAuthOpenIddict();
-builder.AddJobs("auth", DatabaseExtensions.ConnectionStringName);
-builder.Services.AddRecurringJob<PruneOidcTokensJob>(PruneOidcTokensJob.Id, "0 3 * * *");
+builder.AddMessaging(
+    "auth",
+    DatabaseExtensions.ConnectionStringName,
+    options =>
+    {
+        // Not left to entry-assembly detection: under WebApplicationFactory the entry assembly
+        // is the test host, and Wolverine would scan it instead of this app's handlers.
+        options.ApplicationAssembly = typeof(Program).Assembly;
+
+        // auth consumes its own maintenance messages; cross-app work (email) goes to the
+        // worker's queue when it exists.
+        options.PublishMessage<PruneOidcTokens>().ToRabbitQueue("auth");
+    }
+);
+builder.Services.AddHostedService<PruneScheduler>();
 builder.Services.AddSingleton<AuthMetrics>();
 builder.Services.AddRazorPages();
 builder.Services.AddAuthHealthChecks();
@@ -41,8 +56,6 @@ app.UseAuthorization();
 app.MapAuthHealthChecks();
 app.MapAuthOidcEndpoints();
 app.MapRazorPages().WithSecurityHeadersPolicy(SecurityHeaderExtensions.PagesPolicy);
-app.MapJobsDashboard(policy => policy.RequireRole(AuthRoles.Admin))
-    .WithSecurityHeadersPolicy(SecurityHeaderExtensions.DashboardPolicy);
 
 if (app.Environment.IsEnvironment("Testing"))
 {

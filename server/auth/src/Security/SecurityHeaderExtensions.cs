@@ -5,9 +5,6 @@ internal static class SecurityHeaderExtensions
     // Razor pages carry this named policy; everything else gets the default.
     public const string PagesPolicy = "pages";
 
-    // The Hangfire dashboard carries this one.
-    public const string DashboardPolicy = "dashboard";
-
     // NetEscapades.AspNetCore.SecurityHeaders' API baseline, tightened where an authorization
     // server can afford to be. The library owns the parts that drift as browsers move — the
     // Permissions-Policy deny list, HSTS mechanics (https-only, localhost excluded) — so none of
@@ -20,38 +17,13 @@ internal static class SecurityHeaderExtensions
             // The one loosening a rendered page needs: its own form has to be able to post back.
             // Everything else stays pinned; the design pass opens style-src if and when
             // there is styling to allow.
-            .AddPolicy(PagesPolicy, policy => AddAuthPolicy(policy, selfFormAction: true))
-            .AddPolicy(DashboardPolicy, AddDashboardPolicy);
+            .AddPolicy(PagesPolicy, policy => AddAuthPolicy(policy, selfFormAction: true));
 
         return services;
     }
 
     public static IApplicationBuilder UseAuthSecurityHeaders(this IApplicationBuilder app) =>
         app.UseSecurityHeaders();
-
-    // What Hangfire's UI actually needs and nothing more: its scripts, styles, fonts and the
-    // stats it polls all come from its own embedded assets, so everything pins to 'self'.
-    // style-src additionally allows inline because the dashboard sets style="" attributes
-    // (progress bars); scripts stay 'self'-only.
-    private static void AddDashboardPolicy(HeaderPolicyCollection policy)
-    {
-        policy
-            .AddDefaultApiSecurityHeaders()
-            .AddContentSecurityPolicy(csp =>
-            {
-                csp.AddDefaultSrc().None();
-                csp.AddFrameAncestors().None();
-                csp.AddBaseUri().None();
-                csp.AddScriptSrc().Self();
-                csp.AddStyleSrc().Self().UnsafeInline();
-                csp.AddImgSrc().Self().Data();
-                csp.AddFontSrc().Self();
-                csp.AddConnectSrc().Self();
-                csp.AddFormAction().Self();
-            })
-            .AddCrossOriginResourcePolicy(resource => resource.SameOrigin())
-            .AddStrictTransportSecurityMaxAgeIncludeSubDomains();
-    }
 
     private static void AddAuthPolicy(HeaderPolicyCollection policy, bool selfFormAction)
     {

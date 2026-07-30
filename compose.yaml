@@ -32,6 +32,20 @@ services:
       timeout: 3s
       retries: 10
 
+  # The message broker MyStack.Messaging speaks to (docs/architecture.md §3.3). The management
+  # UI at http://localhost:15672 (guest/guest) is the queue operator's view: depths, rates, and
+  # the wolverine-dead-letter-queue with its parked messages.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_UI_PORT:-15672}:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # The inbox every environment's email actually lands in locally — there is no dev-only sender.
   # UI at http://localhost:8025; the e2e suite reads the same messages over its REST API.
   mailpit:

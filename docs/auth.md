@@ -3,26 +3,26 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton, telemetry, the OpenIddict server, and background
-jobs**: ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
+**What exists today is the host skeleton, telemetry, the OpenIddict server, and messaging**:
+ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
 `MyStack.Observability` wired in, OpenIddict issuing tokens — authorization code + PKCE with
 refresh tokens, the four protocol endpoints, a functional sign-in page, request logging and the
-first domain counters — and `MyStack.Jobs` running Hangfire with a gated dashboard and the
-token-pruning recurring job. There is no seeding and no account flow yet, so clients and users
-are still created by hand.
+first domain counters — and `MyStack.Messaging` speaking Wolverine over RabbitMQ, with the daily
+token-prune flowing through the broker. There is no seeding and no account flow yet, so clients
+and users are still created by hand.
 [auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
 is the inventory.
 
 ## Running it
 
 ```bash
-docker compose up -d                  # postgres
+docker compose up -d                  # postgres + rabbitmq + mailpit
 dotnet run --project server/auth/src  # http://localhost:5100
 ```
 
 Development migrates on boot, so a fresh database needs nothing else. The protocol surface hangs
-off `/.well-known/openid-configuration`; the sign-in page is `/signin`; the Hangfire dashboard is
-`/jobs`, for a signed-in `admin`.
+off `/.well-known/openid-configuration`; the sign-in page is `/signin`. The broker's queues live
+in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 
 ## Configuration
 
@@ -34,10 +34,8 @@ off `/.well-known/openid-configuration`; the sign-in page is `/signin`; the Hang
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
 | `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
 | `Oidc:RefreshTokenLifetime` | `14.00:00:00` | Absolute horizon; the token itself rotates on every use. |
-| `Jobs:RetryAttempts` | `5` | Retries after the first failed execution; past them the job dead-letters onto the dashboard's Failed page. |
-| `Jobs:RetryDelaysInSeconds` | Hangfire's backoff | Seconds between retries, one entry per attempt. Tests set `[0]` so a dead-letter is provable in seconds. |
-| `Jobs:PollInterval` | `00:00:02` | Queue and retry-schedule polling — the floor on job latency, and a periodic query against Postgres. |
-| `Jobs:WorkerCount` | Hangfire's default | Concurrent job workers. |
+| `ConnectionStrings:MessageBroker` | none | Required, same no-fallback rule as the database: failing to boot beats silently dropping messages. |
+| `Messaging:RetryCooldownsInSeconds` | `[1, 5, 30]` | Seconds between redelivery attempts after a handler throws, one entry per retry; past the last one the message dead-letters. Tests set `[0]`. |
 
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
@@ -46,8 +44,9 @@ infrastructure credentials, not secrets — every other environment supplies
 ## The schema
 
 Identity's tables live in a Postgres schema named **`auth`**, inside the same database `server/api`
-will use. That is the split `MyStack.Jobs` also assumes when it puts its tables in `hangfire_auth`
-(architecture §3.3), so both apps can share one Postgres instance without sharing a namespace.
+will use. That is the split `MyStack.Messaging` also assumes when it puts its envelope storage in
+`wolverine_auth` (architecture §3.3), so the hosts share one Postgres instance without sharing a
+namespace.
 
 Naming is snake_case throughout, via `EFCore.NamingConventions` — EF Core 10 has no built-in
 convention for it. Identity's `AspNet*` table names are replaced with `users`, `roles`,
@@ -130,43 +129,34 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 - The page runs under its own security-header policy, which differs from the default in exactly
   one directive: `form-action 'self'`.
 
-## Background jobs
+## Messaging
 
-`server/shared/MyStack.Jobs` wires Hangfire against the same Postgres database, in its own
-**`hangfire_auth`** schema — one Hangfire server per app against its own schema, never a shared
-queue (architecture §3.3). The library is the conventions, so `api` will inherit them unchanged:
-storage setup, retry policy, telemetry, and the recurring-job seam.
+`server/shared/MyStack.Messaging` wires Wolverine over RabbitMQ with the stack's conventions —
+auth is its first host, `server/worker` its second (architecture §3.3):
 
-- **The dashboard is `/jobs`**, gated the way every other protected resource is — authorization
-  declared on the endpoint: the Identity cookie plus the `admin` role. Anonymous browsers bounce
-  to `/signin` and land back after signing in; a signed-in non-admin gets a plain 403 (no
-  access-denied page exists yet — the design pass owns pages). Hangfire's own default filter
-  (local requests only) is removed rather than stacked, because behind a reverse proxy every
-  request looks local. The dashboard runs under its own security-header policy: every CSP source
-  pinned to `'self'`, plus inline *styles* only — Hangfire's UI sets `style=""` attributes for its
-  progress bars; scripts stay `'self'`.
-- **Failures retry, then dead-letter visibly.** `Jobs:RetryAttempts` retries with Hangfire's
-  backoff, and an exhausted job parks on the dashboard's Failed page with its exception attached
-  and a requeue button next to it — never silently deleted.
-- **Recurring jobs are declared in code**: `AddRecurringJob<TJob>(id, cron)` registers an
-  `IRecurringJob` at startup, idempotently, so each boot converges the schedule to what the code
-  says. Auth's first is **`prune-oidc-tokens`** (daily, 03:00 UTC): `oidc_tokens` and
-  `oidc_authorizations` gain rows on every sign-in and OpenIddict never deletes them on its own,
-  so the job prunes expired and invalidated entries older than 30 days — comfortably past the
-  14-day refresh horizon, and `PruneAsync` itself never touches a live grant.
-- **Every enqueue is trace-linked, transparently.** A Hangfire client filter stamps the current
-  W3C trace context into the job's parameters; the execution then runs in a span of its own —
-  it may happen minutes later, on another instance — carrying a link back to the request that
-  enqueued it, surviving restarts because the context rides in storage. Failed executions mark
-  the span errored.
-- **Metrics on the `MyStack.Jobs` meter** (architecture §3's table): `jobs.enqueued` tagged
-  `job_type`, and `jobs.executions` tagged `job_type` and `outcome` — `succeeded`, `failed`
-  (retry scheduled) or `dead_lettered`, counted from the state transitions Hangfire actually
-  persisted. `dead_lettered` is the alert signal; the dashboard is for the human that alert pages.
-- **Transactional enqueue is available, opt-in.** Wrapping a `SaveChanges` and an `Enqueue` in
-  one `TransactionScope` commits or rolls back both as a single local Postgres transaction —
-  verified, not assumed; the constraints live in architecture §3.3. A bare `Enqueue` remains its
-  own write.
+- **Auth consumes exactly its own queue** (`auth` — every app's queue is named after it), and
+  Wolverine persists envelopes durably in the **`wolverine_auth`** schema before they ride the
+  broker, so a crash between publish and broker-ack loses nothing. Which messages auth publishes
+  is declared in auth's own composition root, not in the library.
+- **A handler that throws retries on the cooldown schedule** (`Messaging:RetryCooldownsInSeconds`)
+  **and then dead-letters** into the broker's `wolverine-dead-letter-queue` — parked where the
+  management UI can inspect, shovel back or delete it, never silently dropped.
+- **The first real flow is `prune-oidc-tokens`**: `oidc_tokens` and `oidc_authorizations` gain
+  rows on every sign-in and OpenIddict never deletes them on its own, so a timer hosted service
+  publishes `PruneOidcTokens` daily at 03:00 UTC and auth's own handler prunes expired and
+  invalidated entries older than 30 days — comfortably past the 14-day refresh horizon, and
+  `PruneAsync` itself never touches a live grant. Auth handles this itself because pruning touches
+  auth's tables; cross-app work (email, step 7) goes to the worker's queue instead. The timer
+  stays a plain `PeriodicTimer`-style service on purpose: pruning is idempotent, so a missed
+  window or a duplicate publish costs nothing.
+- **Traces cross the queue on their own.** Wolverine propagates W3C context and publishes the
+  `Wolverine` activity source plus a `Wolverine:auth` meter (`wolverine-messages-sent`,
+  `wolverine-execution-time`, `wolverine-execution-failure`, `wolverine-dead-letter-queue` — the
+  last one is the alert signal), both subscribed by `MyStack.Observability`.
+- **Handlers may depend on framework services.** The library sets Wolverine's
+  `ServiceLocationPolicy` to allowed: the v6 default forbids service location in generated handler
+  code, which would ban dependencies on anything factory-registered — OpenIddict's managers, which
+  the prune handler injects, are exactly that.
 
 ## Health
 
@@ -211,20 +201,21 @@ dashboard that isn't running.
 
 What auth emits today:
 
-- **Traces** — inbound requests (ASP.NET Core), outbound HTTP, Npgsql's database spans, and a
-  span per job execution that links back to the enqueuing request's trace (see Background jobs).
-  `/health/*` requests are filtered out: probes are polled forever, and their spans would be most
-  of the volume while answering nothing. Their child queries drop with them (the default sampler is
-  parent-based); the boot-time migration queries stay, as root spans of real work.
+- **Traces** — inbound requests (ASP.NET Core), outbound HTTP, Npgsql's database spans, and
+  Wolverine's publish/receive/handle spans, which carry W3C context across the queue (see
+  Messaging). `/health/*` requests are filtered out: probes are polled forever, and their spans
+  would be most of the volume while answering nothing. Their child queries drop with them (the
+  default sampler is parent-based); the boot-time migration queries stay, as root spans of real
+  work.
 - **Metrics** — the host meters (ASP.NET Core, HTTP client, .NET runtime, Npgsql) plus the domain
   counters from [architecture §3's table](architecture.md): `auth.sign_ins`, tagged
   `result` (`success`, `invalid_credentials`, `locked_out`, `not_allowed`,
   `requires_two_factor`), and `auth.oauth.grants`, tagged `grant_type` and `result`. Grants are
   counted where every token response passes (OpenIddict's `ApplyTokenResponse` event), so
   protocol rejections — a password-grant attempt, a bad PKCE verifier — are counted too;
-  client-supplied grant types collapse to a closed set first. `MyStack.Jobs` adds
-  `jobs.enqueued` and `jobs.executions`. Domain meters and activity sources follow the
-  `MyStack.*` naming convention, which the library subscribes by wildcard.
+  client-supplied grant types collapse to a closed set first. Wolverine adds its own
+  `Wolverine:auth` meter. Domain meters and activity sources follow the `MyStack.*` naming
+  convention, which the library subscribes by wildcard.
 - **Logs** — every log line, with scopes and the formatted message.
 
 ### Request logging

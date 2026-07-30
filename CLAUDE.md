@@ -11,10 +11,11 @@ The foundation, `server/auth`'s host skeleton — Identity over EF Core/Postgres
 checks, security headers — `server/shared/MyStack.Observability` (OTel traces/metrics/logs over
 OTLP, `[Redact]`, the `act.sub` enricher, envelope request logging), the OpenIddict server:
 authorization code + PKCE, refresh tokens, the sign-in page, and the `auth.sign_ins` /
-`auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)) — and `server/shared/MyStack.Jobs`:
-Hangfire on the per-app `hangfire_auth` schema, the admin-gated `/jobs` dashboard, trace-linked
-enqueues, the `jobs.*` counters, and the token-pruning recurring job. No seeding, no account
-flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+`auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)) — and messaging:
+`server/shared/MyStack.Messaging` (Wolverine over RabbitMQ, per-app queues and `wolverine_<app>`
+envelope schemas, retry→dead-letter policy) plus the `server/worker` deployable, with auth's daily
+token-prune flowing through the broker. No seeding, no account flows —
+[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
 
@@ -32,8 +33,8 @@ The two ecosystems share no code. The only contract between them is the OpenAPI 
 `server/api` exports. Wanting to share anything else is a design smell to raise, not to solve.
 
 A `server/shared/` library needs all three: identical in both apps, low-churn, no domain knowledge.
-Exactly three qualify (`MyStack.Jobs`, `MyStack.Email`, `MyStack.Observability`) and the list is
-closed. Everything else starts duplicated.
+Exactly three qualify (`MyStack.Messaging`, `MyStack.Email`, `MyStack.Observability`) and the list
+is closed. Everything else starts duplicated.
 
 ## Commands
 
@@ -42,8 +43,9 @@ dotnet build server/MyStack.slnx     # build
 dotnet test server/MyStack.slnx      # test — needs Docker; the suites run real containers
 dotnet csharpier format .            # format; CI runs `csharpier check .`
 dotnet run --project server/auth/src # auth on :5100, migrating compose Postgres on the way up
+dotnet run --project server/worker/src # worker on :5200, consuming its queue
 dotnet run --project server/auth/src --launch-profile otel # ... also exporting telemetry
-docker compose up -d                 # postgres + mailpit
+docker compose up -d                 # postgres + rabbitmq (mgmt UI :15672) + mailpit
 docker compose --profile otel up -d  # ... plus the telemetry dashboard (:18888)
 
 dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
@@ -93,7 +95,8 @@ assertion to reach green is not.
 
 - **Conventional commits**, always: `type(scope): subject`. Types: `feat`, `fix`, `docs`, `test`,
   `refactor`, `perf`, `build`, `ci`, `chore`. Scope is the area touched (`auth`, `api`, `web`,
-  `jobs`, `email`, `ci`, `docs`) and is omitted when the change is repo-wide. Subject is
+  `worker`, `messaging`, `email`, `ci`, `docs`) and is omitted when the change is repo-wide.
+  Subject is
   imperative and lower-case. Breaking changes get a `!` and a `BREAKING CHANGE:` footer.
 - **One concern per PR.** One thing, reviewable in one sitting, leaving `main` green and
   deployable.
