@@ -6,4 +6,8 @@
     <Project Path="auth/src/MyStack.Auth.csproj" />
     <Project Path="auth/tests/MyStack.Auth.Tests.csproj" />
   </Folder>
+  <Folder Name="/shared/">
+    <Project Path="shared/MyStack.Observability/src/MyStack.Observability.csproj" />
+    <Project Path="shared/MyStack.Observability/tests/MyStack.Observability.Tests.csproj" />
+  </Folder>
 </Solution>

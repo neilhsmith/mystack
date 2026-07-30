@@ -1,11 +1,14 @@
 using MyStack.Auth.Data;
 using MyStack.Auth.Health;
 using MyStack.Auth.Security;
+using MyStack.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // `Server: Kestrel` names the target for whoever is scanning and buys nothing back.
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.AddServerHeader = false);
+
+builder.AddObservability("auth");
 
 builder.Services.AddAuthDatabase(builder.Configuration);
 builder.Services.AddAuthIdentity();
@@ -17,6 +20,7 @@ var app = builder.Build();
 app.UseAuthSecurityHeaders();
 
 app.UseAuthentication();
+app.UseActorEnrichment();
 app.UseAuthorization();
 
 app.MapAuthHealthChecks();

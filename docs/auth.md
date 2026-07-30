@@ -3,10 +3,11 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton**: ASP.NET Core Identity over EF Core/Postgres, the first
-migration, health checks and the security-header set. There is no OpenIddict, no rendered page and
-no account flow yet. [auth-track.md](auth-track.md) is the order the rest lands in;
-[architecture.md §7](architecture.md) is the inventory.
+**What exists today is the host skeleton plus telemetry**: ASP.NET Core Identity over EF
+Core/Postgres, the first migration, health checks, the security-header set, and
+`MyStack.Observability` wired in. There is no OpenIddict, no rendered page and no account flow yet.
+[auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
+is the inventory.
 
 ## Running it
 
@@ -77,6 +78,47 @@ Readiness runs two real checks:
 The JSON body names each check, its status and its duration. It never carries the exception: a
 check that throws has its message copied into `Description` by the framework, and that message is
 where a connection string would reach an unauthenticated response.
+
+## Telemetry
+
+`server/shared/MyStack.Observability` wires the host: OpenTelemetry traces, metrics and logs over
+OTLP, and the W3C trace id on every console line — carried as a scope, so a line logged outside a
+request correctly has none.
+
+```bash
+docker compose --profile otel up -d                          # dashboard UI :18888, OTLP :18889
+dotnet run --project server/auth/src --launch-profile otel   # auth, exporting to it
+```
+
+Export happens only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The `otel` launch profile sets it
+(plus a five-second metric export interval, so counters appear while you watch); the default
+profile doesn't, so a bare `dotnet run` never spends the exporter's retry budget against a
+dashboard that isn't running.
+
+What auth emits today:
+
+- **Traces** — inbound requests (ASP.NET Core), outbound HTTP, and Npgsql's database spans.
+  `/health/*` requests are filtered out: probes are polled forever, and their spans would be most
+  of the volume while answering nothing. Their child queries drop with them (the default sampler is
+  parent-based); the boot-time migration queries stay, as root spans of real work.
+- **Metrics** — the host meters only: ASP.NET Core, HTTP client, .NET runtime, Npgsql. The domain
+  counters are [architecture §3's table](architecture.md) and each lands with its emitter.
+- **Logs** — every log line, with scopes and the formatted message.
+
+The resource identity is `service.namespace=mystack`, `service.name=auth` — the namespace is what
+groups `api` and `auth` as one product in a telemetry backend that sees more than this stack. The
+version reads the app assembly, not the entry assembly, which under `WebApplicationFactory` would
+be the test host.
+
+Two conventions with teeth:
+
+- **URL query redaction stays on for auth** — the instrumentation's default, kept deliberately.
+  Confirmation and reset tokens will travel in query strings here, so `url.query` on a span is a
+  credential leak. `api` will make the opposite call (its query strings are paging, worth seeing);
+  the asymmetry is the point.
+- **`act.sub`** — when a principal carries an RFC 8693 `act` claim, enrichment middleware tags the
+  request span and every log line in its scope with the acting party's subject. Nothing sets the
+  claim yet; the seam exists so impersonation (architecture §3.2) never has to reopen this code.
 
 ## Security posture
 

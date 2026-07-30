@@ -17,7 +17,8 @@ Browser ──fetch /api/*──▶ apps/web (BFF) ──Bearer <jwt>──▶ s
 ## What exists today
 
 The foundation — toolchain, CI gate, local infrastructure — and `server/auth`'s host skeleton:
-Identity over EF Core/Postgres, the first migration, health checks and security headers
+Identity over EF Core/Postgres, the first migration, health checks and security headers, plus
+`server/shared/MyStack.Observability` giving auth traces, metrics and logs over OTLP
 ([docs/auth.md](docs/auth.md)). No OpenIddict yet, so nothing issues a token.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
@@ -39,8 +40,9 @@ dotnet run --project server/auth/src  # auth on :5100, migrating on the way up
 | [Mailpit](http://localhost:8025)        | 8025 (UI), 1025 (SMTP)  | the local inbox — email is genuinely sent    |
 | [Telemetry dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `--profile otel` |
 
-The telemetry dashboard is opt-in: `docker compose --profile otel up -d`. It's the Aspire
-dashboard image today, but the apps only speak OTLP, so any collector can take its place.
+The telemetry dashboard is opt-in: `docker compose --profile otel up -d`, then run the app with
+`--launch-profile otel` so it has somewhere to export to. It's the Aspire dashboard image today,
+but the apps only speak OTLP, so any collector can take its place.
 
 ## Working on it
 

@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../shared/MyStack.Observability/src/MyStack.Observability.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="MyStack.Auth.Tests" />
   </ItemGroup>
 </Project>
