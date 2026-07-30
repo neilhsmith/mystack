@@ -16,10 +16,11 @@ Browser ──fetch /api/*──▶ apps/web (BFF) ──Bearer <jwt>──▶ s
 
 ## What exists today
 
-The foundation — toolchain, CI gate, local infrastructure — and `server/auth`'s host skeleton:
-Identity over EF Core/Postgres, the first migration, health checks and security headers, plus
-`server/shared/MyStack.Observability` giving auth traces, metrics and logs over OTLP
-([docs/auth.md](docs/auth.md)). No OpenIddict yet, so nothing issues a token.
+The foundation — toolchain, CI gate, local infrastructure — and `server/auth` through its
+OpenIddict server: Identity over EF Core/Postgres, health checks and security headers,
+`server/shared/MyStack.Observability` (traces, metrics and logs over OTLP, request logging), and
+token issuance via authorization code + PKCE with refresh tokens and a functional sign-in page
+([docs/auth.md](docs/auth.md)). No seeding and no account flows yet.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 

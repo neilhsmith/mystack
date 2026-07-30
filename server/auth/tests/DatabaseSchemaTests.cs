@@ -35,5 +35,9 @@ public sealed class DatabaseSchemaTests(AuthAppFixture app)
 
         tables.ShouldContain("users");
         tables.ShouldContain("roles");
+        tables.ShouldContain("oidc_applications");
+        tables.ShouldContain("oidc_authorizations");
+        tables.ShouldContain("oidc_scopes");
+        tables.ShouldContain("oidc_tokens");
     }
 }

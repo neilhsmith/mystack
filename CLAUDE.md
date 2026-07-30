@@ -7,10 +7,11 @@ alternative structure.
 
 ## What exists today
 
-The foundation, plus `server/auth`'s host skeleton — Identity over EF Core/Postgres, the first
-migration, health checks and security headers — plus `server/shared/MyStack.Observability` wired
-into auth: OTel traces/metrics/logs over OTLP, `[Redact]`, the `act.sub` enricher
-([docs/auth.md](docs/auth.md)). No OpenIddict, no pages, no account flows —
+The foundation, `server/auth`'s host skeleton — Identity over EF Core/Postgres, migrations, health
+checks, security headers — `server/shared/MyStack.Observability` (OTel traces/metrics/logs over
+OTLP, `[Redact]`, the `act.sub` enricher, envelope request logging), and the OpenIddict server:
+authorization code + PKCE, refresh tokens, the sign-in page, and the `auth.sign_ins` /
+`auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)). No seeding, no account flows —
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
