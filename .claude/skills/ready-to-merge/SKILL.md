@@ -23,7 +23,10 @@ A body written when the PR opened describes the plan. This rewrites it to descri
    its claims against the diff rather than editing around them.
 
 3. **Rewrite the title** as a conventional commit — `type(scope): subject`, imperative and
-   lower-case. GitHub appends ` (#N)` itself.
+   lower-case. Never include the PR number: merge order won't match PR numbering, so ` (#N)`
+   suffixes read as random in `git log`. GitHub pre-fills one in the merge box — remind the user to
+   delete it there when reporting blockers, and pass `--subject` explicitly if merging with
+   `gh pr merge`.
 
 4. **Rewrite the body** into these sections, dropping any that would be empty:
    - what changed, and why
