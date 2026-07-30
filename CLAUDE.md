@@ -98,5 +98,6 @@ assertion to reach green is not.
   merge, branch deleted on merge.
 - **The PR body becomes the squash commit message**, so `main`'s history is the PR bodies. It says
   what changed, why, and what it deliberately doesn't do — describing the final state rather than
-  the plan, which means rewriting it before merging (`/ready-to-merge`).
+  the plan. The `describe-pr` skill writes it: run it when opening every PR, and again
+  (`/describe-pr`) after pushing more work or before merging.
 - **Docs are updated in the same PR as the code.** There is no docs catch-up PR.

@@ -1,34 +1,35 @@
 ---
-name: ready-to-merge
-description: Rewrite the current PR's title and body to describe what actually landed, then report anything blocking the merge. Run immediately before merging a PR.
-disable-model-invocation: true
+name: describe-pr
+description: Write the PR title and body that will become the squash commit. Run before every `gh pr create` to compose the message, and again on an open PR after pushing more work or immediately before merging.
 ---
 
-# Ready to merge
+# Describe PR
 
 `main` is squash-merge only, and this repo is configured so the squash commit's **title is the PR
 title** and its **body is the PR body**. Branch commits contribute their diff and nothing else —
 their messages are discarded. So the PR body is the permanent history entry, and `git log` on `main`
 is the sequence of PR bodies.
 
-A body written when the PR opened describes the plan. This rewrites it to describe the result.
+This composes that entry from the diff. Run it when opening a PR, and again whenever the branch has
+moved since the message was written, so the message always describes the result — never the plan.
 
 ## Steps
 
 1. **Find the PR** for the current branch:
-   `gh pr view --json number,title,body,baseRefName,url`. If there isn't one, stop and say so.
+   `gh pr view --json number,title,body,baseRefName,url`. No PR means you are composing the message
+   for `gh pr create`: follow the same steps, then pass the result as `--title`/`--body`.
 
 2. **Read what actually landed.** `git diff <base>...HEAD` and `git log <base>..HEAD --oneline`.
-   The diff is the source of truth. Treat the existing body as an unverified draft: check each of
+   The diff is the source of truth. Treat any existing body as an unverified draft: check each of
    its claims against the diff rather than editing around them.
 
-3. **Rewrite the title** as a conventional commit — `type(scope): subject`, imperative and
+3. **Write the title** as a conventional commit — `type(scope): subject`, imperative and
    lower-case. Never include the PR number: merge order won't match PR numbering, so ` (#N)`
    suffixes read as random in `git log`. GitHub pre-fills one in the merge box — remind the user to
    delete it there when reporting blockers, and pass `--subject` explicitly if merging with
    `gh pr merge`.
 
-4. **Rewrite the body** into these sections, dropping any that would be empty:
+4. **Write the body** into these sections, dropping any that would be empty:
    - what changed, and why
    - non-obvious constraints or gotchas found while building it
    - what it deliberately doesn't do, and why
@@ -41,10 +42,11 @@ A body written when the PR opened describes the plan. This rewrites it to descri
    - docs updated in the same PR as the code they describe
    - `docs/architecture.md` §7's inventory ticked for anything that landed
 
-6. **Show the before/after** of the title and body, then apply with `gh pr edit`.
+6. **Apply it.** On an existing PR, show the before/after of the title and body, then
+   `gh pr edit`. When opening, use the message with `gh pr create` directly.
 
-7. **Report blockers** — gate conclusion, unresolved review threads, mergeability. Never merge;
-   that's the user's call.
+7. **Report blockers** — gate conclusion, unresolved review threads, mergeability. Skip this on a
+   PR you just created: the gate hasn't run yet. Never merge; that's the user's call.
 
 ## Guardrails
 
