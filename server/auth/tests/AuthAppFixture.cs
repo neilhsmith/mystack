@@ -163,7 +163,17 @@ public sealed class AuthAppFixture : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:AuthDb", connectionString);
             builder.UseSetting("Database:Migrate", "true");
 
-            builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs));
+            // One immediate retry and half-second polling: a retry-then-dead-letter sequence is
+            // provable in seconds instead of the production backoff's minutes.
+            builder.UseSetting("Jobs:RetryAttempts", "1");
+            builder.UseSetting("Jobs:RetryDelaysInSeconds:0", "0");
+            builder.UseSetting("Jobs:PollInterval", "00:00:00.500");
+
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton<ILoggerProvider>(logs);
+                services.AddSingleton<JobRecorder>();
+            });
         }
     }
 }

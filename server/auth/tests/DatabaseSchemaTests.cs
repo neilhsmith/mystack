@@ -40,4 +40,22 @@ public sealed class DatabaseSchemaTests(AuthAppFixture app)
         tables.ShouldContain("oidc_scopes");
         tables.ShouldContain("oidc_tokens");
     }
+
+    [Fact]
+    public async Task HangfireTables_LiveInTheirOwnSchema()
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        // Hangfire manages its own tables outside EF, in the per-app schema that architecture
+        // §3.3 leans on for queue isolation.
+        var tables = await context
+            .Database.SqlQuery<string>(
+                $"select table_name from information_schema.tables where table_schema = 'hangfire_auth'"
+            )
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        tables.ShouldContain("job");
+        tables.ShouldContain("jobqueue");
+    }
 }

@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../shared/MyStack.Jobs/src/MyStack.Jobs.csproj" />
     <ProjectReference Include="../../shared/MyStack.Observability/src/MyStack.Observability.csproj" />
   </ItemGroup>
 

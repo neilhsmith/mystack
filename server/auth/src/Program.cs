@@ -1,8 +1,10 @@
 using MyStack.Auth.Data;
 using MyStack.Auth.Health;
+using MyStack.Auth.Jobs;
 using MyStack.Auth.Oidc;
 using MyStack.Auth.Security;
 using MyStack.Auth.Telemetry;
+using MyStack.Jobs;
 using MyStack.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +19,8 @@ builder.Services.AddAuthSecurityHeaders();
 builder.Services.AddAuthDatabase(builder.Configuration);
 builder.Services.AddAuthIdentity();
 builder.AddAuthOpenIddict();
+builder.AddJobs("auth", DatabaseExtensions.ConnectionStringName);
+builder.Services.AddRecurringJob<PruneOidcTokensJob>(PruneOidcTokensJob.Id, "0 3 * * *");
 builder.Services.AddSingleton<AuthMetrics>();
 builder.Services.AddRazorPages();
 builder.Services.AddAuthHealthChecks();
@@ -37,6 +41,8 @@ app.UseAuthorization();
 app.MapAuthHealthChecks();
 app.MapAuthOidcEndpoints();
 app.MapRazorPages().WithSecurityHeadersPolicy(SecurityHeaderExtensions.PagesPolicy);
+app.MapJobsDashboard(policy => policy.RequireRole(AuthRoles.Admin))
+    .WithSecurityHeadersPolicy(SecurityHeaderExtensions.DashboardPolicy);
 
 if (app.Environment.IsEnvironment("Testing"))
 {

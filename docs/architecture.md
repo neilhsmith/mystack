@@ -467,13 +467,18 @@ Four properties that are load-bearing and easy to get wrong:
   tokens only, so a browser has no way to log into its dashboard — in v1 that dashboard is
   development plus restricted-network only. A production-grade route for it is genuinely open; the
   most likely answer is that `apps/admin` grows a jobs screen rather than `api` growing a UI.
-- **`Enqueue` does not join your EF transaction.** Hangfire writes its own tables through its own
-  connection, so "user created" and "confirmation email enqueued" are two writes, not one. That is
-  the honest price of Hangfire over a hand-rolled queue sharing the `DbContext`, and it is paid
-  knowingly: the failure mode is a created account with no email sent, and resend-confirmation
-  already exists to recover it. `Hangfire.PostgreSql` exposes a `TransactionScope` enlistment option
-  that may close the gap — **verify it when building this rather than assuming it.** If it doesn't, this is
-  precisely the transactional-outbox trigger in §4, and that row stays there pointing here.
+- **`Enqueue` does not join your EF transaction — unless you ask.** By default Hangfire writes its
+  own tables through its own connection, so "user created" and "confirmation email enqueued" are two
+  writes, not one; the failure mode is a created account with no email sent, and
+  resend-confirmation recovers it. **Verified while building this** (`MyStack.Jobs` pins
+  `EnableTransactionScopeEnlistment`, the 1.21 default): wrapping the `SaveChanges` and the
+  `Enqueue` in one `TransactionScope` makes them genuinely atomic — both commit or both roll back —
+  because Npgsql reuses one physical connection for same-connection-string enlistments, so it stays
+  a single local Postgres transaction. Three constraints keep it honest: it is opt-in per call
+  site, both writes must use the *same* connection string (a variant string means a second
+  physical connection and a distributed-transaction escalation .NET on Linux refuses), and it does
+  not compose with `Database.BeginTransaction()` — EF's own transaction is invisible to Hangfire's
+  connection. The §4 outbox row now guards only the cases outside those constraints.
 - **Trace context does not propagate into a job by itself.** The enqueuing span and the executing
   job's span are linked explicitly, so a failed email is traceable back to the request that asked
   for it. `mystack-old`'s `TraceLinkedJobExtensions` is the reference.
@@ -651,7 +656,7 @@ up. Anything added later gets its own PR and its own doc entry.
 | ETag + `If-Match` optimistic concurrency        | two users genuinely edit the same row and you've lost an update                 |
 | Output caching, cache tags, cache metrics       | a profiler — not a hunch — says a specific endpoint is the bottleneck           |
 | Distributed cache (Redis)                       | you run more than one instance *and* have measured cache pressure               |
-| Transactional outbox                            | Hangfire's non-transactional `Enqueue` (§3.3) actually loses a job you needed  |
+| Transactional outbox                            | atomicity is needed where §3.3's `TransactionScope` pattern can't reach (different stores, cross-service) |
 | A designed emails package (React Email → HTML)  | interpolated string bodies stop being good enough to send to a real user        |
 | Postgres full-text / trigram search             | list search is slow with real data volume                                       |
 | The HTTP `QUERY` verb + a filter DSL            | ordinary POST-with-a-body demonstrably can't express what a screen needs        |
@@ -815,7 +820,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 ### Shared .NET libraries
 
-- [ ] **`MyStack.Jobs`** — Hangfire on Postgres, per-app schema, gated dashboard, recurring jobs,
+- [x] **`MyStack.Jobs`** — Hangfire on Postgres, per-app schema, gated dashboard, recurring jobs,
       trace linking (§3.3)
 - [ ] **`MyStack.Email`** — `IEmailSender`, SMTP adapter, message shape, the account emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard

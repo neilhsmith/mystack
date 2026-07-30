@@ -37,7 +37,20 @@ internal static class IdentityExtensions
             // production at the moment someone asks for a reset.
             .AddDefaultTokenProviders();
 
-        services.ConfigureApplicationCookie(cookie => cookie.LoginPath = "/signin");
+        services.ConfigureApplicationCookie(cookie =>
+        {
+            cookie.LoginPath = "/signin";
+
+            // No access-denied page exists yet (the design pass owns pages), so a signed-in user
+            // failing a role check gets an honest 403 rather than a redirect to a 404. Mutating
+            // the event — not replacing Events — keeps Identity's security-stamp validation
+            // hook intact.
+            cookie.Events.OnRedirectToAccessDenied = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            };
+        });
 
         return services;
     }

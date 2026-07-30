@@ -9,10 +9,12 @@ alternative structure.
 
 The foundation, `server/auth`'s host skeleton — Identity over EF Core/Postgres, migrations, health
 checks, security headers — `server/shared/MyStack.Observability` (OTel traces/metrics/logs over
-OTLP, `[Redact]`, the `act.sub` enricher, envelope request logging), and the OpenIddict server:
+OTLP, `[Redact]`, the `act.sub` enricher, envelope request logging), the OpenIddict server:
 authorization code + PKCE, refresh tokens, the sign-in page, and the `auth.sign_ins` /
-`auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)). No seeding, no account flows —
-[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+`auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)) — and `server/shared/MyStack.Jobs`:
+Hangfire on the per-app `hangfire_auth` schema, the admin-gated `/jobs` dashboard, trace-linked
+enqueues, the `jobs.*` counters, and the token-pruning recurring job. No seeding, no account
+flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
 

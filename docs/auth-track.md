@@ -136,9 +136,11 @@ is a dashboard page for a human, but the `outcome: dead_lettered` tag is what an
 **Proves:** the dashboard is reachable signed in as an admin and refused otherwise; a job that
 throws retries on schedule and then dead-letters where you can see it.
 
-> Resolve plan §3.3's open question here: does `Hangfire.PostgreSql`'s `TransactionScope`
-> enlistment actually make `Enqueue` transactional with `SaveChanges`? If not, record it and leave
-> the transactional-outbox row in §4 pointing at it.
+> **Resolved** (plan §3.3 records it): with `TransactionScope` enlistment on — the shipped
+> default — a `SaveChanges` and an `Enqueue` wrapped in one scope commit or roll back together,
+> as one local Postgres transaction, provided both use the same connection string. Opt-in per
+> call site; a bare `Enqueue` is still its own write. The §4 outbox row now guards only what the
+> pattern can't reach.
 
 ### 7. `MyStack.Email`
 

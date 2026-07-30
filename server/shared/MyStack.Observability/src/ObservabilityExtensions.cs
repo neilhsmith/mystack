@@ -70,6 +70,10 @@ public static class ObservabilityExtensions
                     // Npgsql publishes its own ActivitySource and Meter, so database work needs a
                     // name subscribed, not a package.
                     .AddSource("Npgsql")
+                    // Same convention as the meter wildcard below: any ActivitySource under
+                    // MyStack.* (the job-execution spans today) is subscribed the moment it
+                    // exists.
+                    .AddSource("MyStack.*")
             )
             .WithMetrics(metrics =>
                 metrics
