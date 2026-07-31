@@ -6,7 +6,8 @@ and it is the only deployable that issues tokens.
 **What exists today is the host skeleton, telemetry, the OpenIddict server, messaging, seeding,
 and the account flows**: ASP.NET Core Identity over EF Core/Postgres, health checks, the
 security-header set, `MyStack.Observability` wired in, OpenIddict issuing tokens — authorization
-code + PKCE with refresh tokens, the four protocol endpoints, a functional sign-in page, request
+code + PKCE with refresh tokens, client credentials for machine clients, userinfo and
+introspection alongside the original four protocol endpoints, a functional sign-in page, request
 logging and the first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ,
 with the daily token-prune flowing through the broker, config-driven seeding bringing a fresh
 database to a working state before the host serves, and the account flows: register + email
@@ -111,14 +112,19 @@ reason Identity's were.
 | --- | --- | --- |
 | Discovery + JWKS | `/.well-known/openid-configuration` | OpenIddict entirely |
 | Authorization | `/connect/authorize` | passthrough: cookie check, implicit-consent check, principal |
-| Token | `/connect/token` | passthrough: user re-validated against the store, claims rebuilt |
+| Token | `/connect/token` | passthrough: user re-validated against the store, claims rebuilt; client principal for machines |
+| Userinfo | `/connect/userinfo` | passthrough: scope-gated claims through the same destination logic |
+| Introspection | `/connect/introspection` | OpenIddict entirely |
 | End session | `/connect/endsession` | passthrough: Identity sign-out, then the validated post-logout redirect |
 | Revocation | `/connect/revocation` | OpenIddict entirely |
 
-**Authorization code + PKCE and refresh tokens are the only flows.** PKCE is required globally
-rather than per client, so no future registration can quietly opt out. **There is no password
-grant, in any environment** — `grant_types_supported` in the discovery document is exactly
-`[authorization_code, refresh_token]`, and the test suite asserts it.
+**Authorization code + PKCE with refresh tokens for humans, client credentials for machines —
+and no other flow.** PKCE is required globally rather than per client, so no future registration
+can quietly opt out. A machine client is confidential by construction; its token carries the
+client's own identity — `sub` is the client id — and its granted scopes, and never a user claim,
+an id token or a refresh token. **There is no password grant, in any environment** —
+`grant_types_supported` in the discovery document is exactly
+`[authorization_code, refresh_token, client_credentials]`, and the test suite asserts it.
 
 **Lifetimes are configuration** — the `Oidc:*` keys above, with the defaults committed in
 `appsettings.json`. Refresh tokens rotate: every refresh issues a new one, and the token endpoint
@@ -133,6 +139,21 @@ concretely — reaches no token at all, which the flow test proves. A token gran
 carries `aud: api`. Access tokens are signed but **not encrypted** JWTs: `server/api` validates
 them against the discovery document rather than sharing auth's key material.
 
+**Userinfo answers exactly per granted scope.** `/connect/userinfo` rebuilds the principal
+through the same funnel token issuance uses and returns the claims whose destination includes the
+identity token — `sub` always, then `email`, `name` and `role` as their scopes were granted — so
+userinfo and the id token agree by construction and can never drift; `perm`/`perm_deny` stay out
+of both. A token with no user behind it — any machine token — gets `invalid_token`: there is
+nobody to describe.
+
+**Introspection is for confidential callers only.** `/connect/introspection` (RFC 7662) answers
+whether a token is live, for callers that can't validate JWTs locally. OpenIddict handles it
+entirely, and its posture is deliberate: a public client is refused outright
+(`unauthorized_client`); a confidential caller gets the real answer only for a token it presented
+or is an audience of — any other token answers `active: false`, so the endpoint can't be used to
+probe stolen tokens; and claim details such as `scope` are released to a token's audiences alone,
+a mere presenter seeing liveness and metadata.
+
 **Keys.** Development uses the framework's development certificates; tests use ephemeral in-memory
 keys so CI never writes a certificate store; any other environment must supply real signing and
 encryption credentials deliberately, and OpenIddict refuses to boot without them (see the
@@ -142,10 +163,11 @@ hardening items).
 implicit consent; the authorization endpoint refuses a client registered any other way, so a
 future third-party client forces the decision to be remade rather than silently inheriting it.
 
-**Clients come from seed configuration** (see Seeding): development declares `web-bff` and
-`bruno` in `appsettings.Development.json`, the test suite declares its client the same way, and
-every one of them takes the only shape the seeder can produce — authorization code + PKCE +
-refresh, implicit consent, no exceptions.
+**Clients come from seed configuration** (see Seeding): development declares `web-bff`, `bruno`
+and the `dev-machine` machine client in `appsettings.Development.json`, the test suite declares
+its clients the same way, and every one of them takes one of the two shapes the seeder can
+produce — browser (authorization code + PKCE + refresh, implicit consent, public or
+confidential) or machine (client credentials only) — no exceptions.
 
 ## Permission overrides
 
@@ -252,13 +274,13 @@ create ways to be wrong.
 
 **Config-declared:** the OIDC clients and the accounts (`Seed:Clients`, `Seed:Users`) — redirect
 URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
-*which* clients exist and where they redirect; *what a client may do* is fixed in code: every
-seeded client is authorization code + PKCE + refresh with implicit consent, and there is
-deliberately no knob for grant types, so no configuration can reintroduce the password grant.
-Confidential clients require a secret and public clients refuse one; missing required values
-throw and abort startup — failing to boot beats booting wrong, and a silently-defaulted secret
-would ship in a public repo. The client-credentials shape for machine clients arrives with
-auth-track step 10.
+*which* clients exist and where they redirect; *what a client may do* is fixed in code, per
+shape: a browser client (`Public` or `Confidential`) is authorization code + PKCE + refresh with
+implicit consent, a `Machine` client is client credentials only, and there is deliberately no
+knob for grant types, so no configuration can reintroduce the password grant. Confidential and
+machine clients require a secret, public clients refuse one, and machine clients refuse redirect
+URIs; missing required values throw and abort startup — failing to boot beats booting wrong, and
+a silently-defaulted secret would ship in a public repo.
 
 **Seeding guarantees an administrator.** At least one declared user must carry the `globaladmin`
 role, or startup throws — the deliberate opt-out of seeded accounts is the switch, never a config

@@ -24,14 +24,18 @@ internal static class OidcExtensions
                 server
                     .SetAuthorizationEndpointUris("connect/authorize")
                     .SetTokenEndpointUris("connect/token")
+                    .SetUserInfoEndpointUris("connect/userinfo")
+                    .SetIntrospectionEndpointUris("connect/introspection")
                     .SetEndSessionEndpointUris("connect/endsession")
                     .SetRevocationEndpointUris("connect/revocation");
 
-                // Authorization code + PKCE and refresh tokens — and nothing else. No password
-                // grant, in any environment (architecture §3); PKCE is required globally rather
-                // than per client, so no future registration can quietly opt out.
+                // Authorization code + PKCE with refresh tokens for humans, client credentials
+                // for machines — and nothing else. No password grant, in any environment
+                // (architecture §3); PKCE is required globally rather than per client, so no
+                // future registration can quietly opt out.
                 server.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
                 server.AllowRefreshTokenFlow();
+                server.AllowClientCredentialsFlow();
 
                 server.RegisterScopes(
                     Scopes.Email,
@@ -67,6 +71,7 @@ internal static class OidcExtensions
                     .UseAspNetCore()
                     .EnableAuthorizationEndpointPassthrough()
                     .EnableTokenEndpointPassthrough()
+                    .EnableUserInfoEndpointPassthrough()
                     .EnableEndSessionEndpointPassthrough();
 
                 if (

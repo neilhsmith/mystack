@@ -24,7 +24,9 @@ password, change password + notification, every email published through the Wolv
 to the worker's queue, anti-enumeration throughout, the four `auth.*` account counters, and the
 `bruno/Auth/Account` folder driving it all by hand — and permission overrides: per-user
 grant/deny rows with optional expiry, minted into `perm`/`perm_deny` access-token claims on
-every issuance, the strings opaque to auth.
+every issuance, the strings opaque to auth — and the wider token surface: userinfo (scope-gated,
+agreeing with the id token by construction), the client-credentials grant with the seeder's
+`Machine` client shape, and introspection for confidential callers only.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".

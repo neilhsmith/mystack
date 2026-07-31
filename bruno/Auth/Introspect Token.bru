@@ -1,0 +1,32 @@
+meta {
+  name: Introspect Token
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{auth_url}}/connect/introspection
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  token: {{machine_access_token}}
+  client_id: {{machine_client_id}}
+  client_secret: {{machine_client_secret}}
+}
+
+docs {
+  RFC 7662, for callers that can't validate JWTs locally: is this token live, and whose is it —
+  from the server's mouth. Run "Client Credentials (Machine)" first to stash
+  {{machine_access_token}}.
+
+  The posture, all of it provable from here:
+  - Confidential clients only — swap client_id to `bruno` (no secret) and the endpoint refuses
+    with unauthorized_client before looking at the token.
+  - A caller sees the real answer only for a token it presented or is an audience of; any other
+    token — try pasting {{access_token}} in — answers `active: false`, so a stolen token can't
+    be probed here.
+  - Claim details like scope go to a token's audiences only; a mere presenter gets liveness and
+    metadata.
+}

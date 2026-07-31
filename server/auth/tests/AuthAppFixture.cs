@@ -19,6 +19,11 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public const string AdminEmail = "admin@mystack.test";
     public const string DefaultPassword = "a perfectly adequate passphrase";
 
+    // The seeded machine client — confidential, client credentials only — that the token-surface
+    // tests authenticate as.
+    public const string MachineClientId = "test-machine";
+    public const string MachineClientSecret = "a secret only machines know";
+
     // The images compose runs, so the migration and the broker topology are proven against what
     // the stack actually uses rather than whatever `latest` happens to be.
     private readonly PostgreSqlContainer database = new PostgreSqlBuilder(

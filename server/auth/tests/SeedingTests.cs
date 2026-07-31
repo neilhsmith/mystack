@@ -42,6 +42,12 @@ public sealed class SeedingTests(AuthAppFixture app)
         );
         client.ShouldNotBeNull();
 
+        var machine = await applications.FindByClientIdAsync(
+            AuthAppFixture.MachineClientId,
+            cancellationToken
+        );
+        machine.ShouldNotBeNull();
+
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
         admin.ShouldNotBeNull();
@@ -227,7 +233,7 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         var applications =
             scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-        (await applications.CountAsync(cancellationToken)).ShouldBe(1);
+        (await applications.CountAsync(cancellationToken)).ShouldBe(2);
     }
 
     private AuthApplicationFactory Factory(
