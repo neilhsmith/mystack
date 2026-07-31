@@ -23,7 +23,7 @@ Auth is closed when all of these hold:
 - [ ] Every account flow works end to end **including its email**: register → confirm, forgot →
       reset, change password → notification.
 - [ ] Every rendered page is designed, not scaffolded, and passes an accessibility pass.
-- [ ] Seeding brings a fresh database to a working state in dev and in production, from config.
+- [x] Seeding brings a fresh database to a working state in dev and in production, from config.
 - [ ] Logs, traces and metrics come out of auth **running on its own**, with no other service up.
 - [ ] The test suite covers the token shape, anti-enumeration, the seeding tiers, and every account
       flow's failure branches.
@@ -314,10 +314,13 @@ compose profile rather than running always-on.
 
 ## Open items to resolve along the way
 
-- **Does production reconcile OIDC clients, or only ensure they exist?** (step 5) Full reconcile
-  means a bad redirect URI in config silently rewrites a working client on the next boot. The
-  descriptor diff limits the blast radius to real changes, but this is still config-driven mutation
-  of live authorization config. Decide deliberately.
+- **Does production reconcile OIDC clients, or only ensure they exist? — resolved in step 5:
+  reconcile.** Config is the source of truth for a client, and a fixed redirect URI that never
+  deploys because the row already existed is the worse failure. The descriptor diff limits writes
+  to real changes (the secret compared through `ValidateClientSecretAsync`), seeding never
+  deletes, and `Database:Seed:Reference` off remains the escape hatch for an organisation
+  managing clients out of band. Users are the opposite call — create-only, never resetting a
+  password a human may have changed.
 - **Consent screen — resolved in step 4: not used** (architecture D17). Every v1 client is
   first-party and registered with implicit consent, and the authorization endpoint refuses any
   other registration — so onboarding a third-party client reopens the decision rather than

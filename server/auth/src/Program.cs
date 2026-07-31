@@ -18,7 +18,7 @@ builder.AddObservability("auth");
 
 builder.Services.AddProblemDetails();
 builder.Services.AddAuthSecurityHeaders();
-builder.Services.AddAuthDatabase(builder.Configuration);
+builder.AddAuthDatabase();
 builder.Services.AddAuthIdentity();
 builder.AddAuthOpenIddict();
 builder.AddMessaging(

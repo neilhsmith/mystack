@@ -817,7 +817,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 - [x] **Host skeleton** — Identity, EF + first migration, health checks, security headers
 - [x] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
-- [ ] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
+- [x] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
       seed-before-serve (§3.4)
 - [ ] **Protocol completion** — userinfo, introspection, client credentials, device flow +
       verification page, PAR

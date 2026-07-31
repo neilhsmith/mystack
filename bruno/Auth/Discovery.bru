@@ -1,0 +1,16 @@
+meta {
+  name: Discovery
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{auth_url}}/.well-known/openid-configuration
+  body: none
+  auth: none
+}
+
+docs {
+  The OIDC discovery document: endpoints, supported grant types (authorization_code + refresh_token
+  and nothing else), scopes, and the signing keys jwks_uri.
+}

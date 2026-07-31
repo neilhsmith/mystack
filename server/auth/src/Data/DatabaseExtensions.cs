@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyStack.Auth.Seeding;
 
 namespace MyStack.Auth.Data;
 
@@ -6,11 +7,10 @@ internal static class DatabaseExtensions
 {
     public const string ConnectionStringName = "AuthDb";
 
-    public static IServiceCollection AddAuthDatabase(
-        this IServiceCollection services,
-        IConfiguration configuration
-    )
+    public static WebApplicationBuilder AddAuthDatabase(this WebApplicationBuilder builder)
     {
+        var configuration = builder.Configuration;
+
         var connectionString =
             configuration.GetConnectionString(ConnectionStringName)
             // Failing to boot beats booting against the wrong database, and a fallback value here
@@ -19,11 +19,28 @@ internal static class DatabaseExtensions
                 $"ConnectionStrings:{ConnectionStringName} is not configured."
             );
 
-        services
-            .AddOptions<DatabaseOptions>()
-            .Bind(configuration.GetSection(DatabaseOptions.SectionName));
+        // Checked at registration — the earliest possible moment — rather than when seeding runs:
+        // a switch that could silently put sample credentials into production is not worth having.
+        if (
+            builder.Environment.IsProduction()
+            && configuration.GetValue<bool>($"{DatabaseOptions.SectionName}:Seed:Sample")
+        )
+        {
+            throw new InvalidOperationException(
+                "Database:Seed:Sample is enabled in a Production environment. Sample accounts "
+                    + "are a development convenience and never seed into production "
+                    + "(docs/architecture.md §3.4)."
+            );
+        }
 
-        services.AddDbContext<AuthDbContext>(options =>
+        builder
+            .Services.AddOptions<DatabaseOptions>()
+            .Bind(configuration.GetSection(DatabaseOptions.SectionName));
+        builder
+            .Services.AddOptions<SeedOptions>()
+            .Bind(configuration.GetSection(SeedOptions.SectionName));
+
+        builder.Services.AddDbContext<AuthDbContext>(options =>
             options
                 .UseNpgsql(
                     connectionString,
@@ -36,8 +53,9 @@ internal static class DatabaseExtensions
                 .UseSnakeCaseNamingConvention()
         );
 
-        services.AddHostedService<DatabaseMigrator>();
+        builder.Services.AddScoped<AuthSeeder>();
+        builder.Services.AddHostedService<DatabaseInitializer>();
 
-        return services;
+        return builder;
     }
 }

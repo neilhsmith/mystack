@@ -23,8 +23,9 @@ headers, `server/shared/MyStack.Observability` (traces, metrics and logs over OT
 logging), token issuance via authorization code + PKCE with refresh tokens and a functional
 sign-in page, and `server/shared/MyStack.Messaging` — Wolverine over RabbitMQ with per-app queues,
 a retry-then-dead-letter policy, and the `server/worker` deployable consuming alongside auth,
-whose daily token-prune flows through the broker ([docs/auth.md](docs/auth.md)). No seeding and
-no account flows yet.
+whose daily token-prune flows through the broker — plus config-driven seeding, so a fresh
+database boots to working clients, roles and a bootstrap admin, provable from the committed
+`bruno/` collection ([docs/auth.md](docs/auth.md)). No account flows yet.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 
@@ -34,14 +35,15 @@ Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), Docker with
 
 ```bash
 cp .env.example .env                  # optional — the defaults work untouched
-docker compose up -d                  # postgres + mailpit
+docker compose up -d                  # postgres + rabbitmq + mailpit
 dotnet tool restore                   # csharpier, dotnet-ef
-dotnet run --project server/auth/src  # auth on :5100, migrating on the way up
+dotnet run --project server/auth/src  # auth on :5100, migrating + seeding on the way up
 ```
 
 | Service                                 | Port                    | For                                          |
 | --------------------------------------- | ----------------------- | -------------------------------------------- |
 | Postgres                                | 5432                    | every app's database                         |
+| [RabbitMQ](http://localhost:15672)      | 5672 (AMQP), 15672 (UI) | the message broker; UI login guest/guest     |
 | [Mailpit](http://localhost:8025)        | 8025 (UI), 1025 (SMTP)  | the local inbox — email is genuinely sent    |
 | [Telemetry dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `--profile otel` |
 
