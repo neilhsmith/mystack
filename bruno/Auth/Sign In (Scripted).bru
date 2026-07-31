@@ -27,33 +27,53 @@ script:pre-request {
   const axios = require('axios');
   const CryptoJS = require('crypto-js');
 
+  const base = bru.getEnvVar('auth_url');
   const jar = {};
-  const keep = (response) => (response.headers['set-cookie'] || []).forEach((cookie) => {
-    const [pair] = cookie.split(';');
-    const split = pair.indexOf('=');
-    jar[pair.slice(0, split).trim()] = pair.slice(split + 1);
-  });
-  const cookies = () => Object.entries(jar).map(([name, value]) => `${name}=${value}`).join('; ');
-  const http = axios.create({
-    baseURL: bru.getEnvVar('auth_url'),
-    maxRedirects: 0,
-    validateStatus: () => true,
-  });
+  const keep = (response) => {
+    // Bruno's sandbox folds a lone Set-Cookie header into a plain string; several may arrive
+    // as an array or one comma-joined string. The lookahead split only breaks before a
+    // `name=` shape, so commas inside expires dates survive.
+    const header = (response.headers || {})['set-cookie'];
+    const list = Array.isArray(header) ? header : String(header || '').split(/,(?=\s*[^;,\s]+?=)/);
+    list.filter(Boolean).forEach((cookie) => {
+      const [pair] = cookie.split(';');
+      const split = pair.indexOf('=');
+      if (split > 0) jar[pair.slice(0, split).trim()] = pair.slice(split + 1);
+    });
+  };
+  const cookies = () => Object.entries(jar).map(([name, value]) => name + '=' + value).join('; ');
+  const encode = (fields) => Object.entries(fields)
+    .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value))
+    .join('&');
 
-  const form = await http.get('/signin');
+  // Written for Bruno's safe-mode sandbox: axios.create and function-valued config (like
+  // validateStatus) don't cross the VM boundary, so every call is a plain axios(config) and
+  // non-2xx answers — the redirects this flow lives on — come back through the caught error's
+  // .response. maxRedirects: 0 keeps axios from chasing the callback we only want to read.
+  const send = async (config) => {
+    try {
+      return await axios({ maxRedirects: 0, ...config });
+    } catch (error) {
+      if (error && error.response) return error.response;
+      throw error;
+    }
+  };
+
+  const form = await send({ method: 'get', url: base + '/signin' });
   keep(form);
-  const antiforgery = form.data.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
-  if (!antiforgery) throw new Error('no antiforgery token on /signin — is auth up on ' + bru.getEnvVar('auth_url') + '?');
+  const antiforgery = String(form.data).match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+  if (!antiforgery) throw new Error('no antiforgery token on /signin — is auth up on ' + base + '?');
 
-  const signIn = await http.post(
-    '/signin',
-    new URLSearchParams({
+  const signIn = await send({
+    method: 'post',
+    url: base + '/signin',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: cookies() },
+    data: encode({
       Email: bru.getEnvVar('signin_email'),
       Password: bru.getEnvVar('signin_password'),
       __RequestVerificationToken: antiforgery[1],
-    }).toString(),
-    { headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: cookies() } }
-  );
+    }),
+  });
   keep(signIn);
   if (signIn.status !== 302) {
     throw new Error('sign-in was refused (' + signIn.status + ') — check signin_email / signin_password');
@@ -66,8 +86,9 @@ script:pre-request {
     .replace(/\//g, '_')
     .replace(/=+$/, '');
 
-  const authorize = await http.get('/connect/authorize', {
-    params: {
+  const authorize = await send({
+    method: 'get',
+    url: base + '/connect/authorize?' + encode({
       client_id: bru.getEnvVar('client_id'),
       redirect_uri: bru.getEnvVar('callback_url'),
       response_type: 'code',
@@ -75,10 +96,10 @@ script:pre-request {
       code_challenge: challenge,
       code_challenge_method: 'S256',
       state: 'scripted',
-    },
+    }),
     headers: { cookie: cookies() },
   });
-  const location = authorize.headers['location'] || '';
+  const location = String((authorize.headers || {}).location || '');
   const code = (location.match(/[?&]code=([^&]+)/) || [])[1];
   if (!code) {
     throw new Error('authorize did not return a code: ' + authorize.status + ' ' + location);
@@ -113,7 +134,4 @@ docs {
 
   Narrow the token for authz testing by editing {{signin_scope}} — e.g. drop api.write and watch
   the API refuse writes once it exists.
-
-  If Bruno complains about require() when this first runs, allow the collection's scripts
-  (Collection Settings → Security → developer mode).
 }
