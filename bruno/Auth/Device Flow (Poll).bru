@@ -1,0 +1,47 @@
+meta {
+  name: Device Flow (Poll)
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{auth_url}}/connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: urn:ietf:params:oauth:grant-type:device_code
+  client_id: {{device_client_id}}
+  device_code: {{device_code}}
+}
+
+script:post-response {
+  if (res.status !== 200) {
+    const error = (res.body || {}).error;
+    if (error === 'authorization_pending') {
+      console.log('still pending — approve the request in the browser, then send this again.');
+    } else {
+      console.log('the device code is done for (' + error + ') — run "Device Flow (Start)" again.');
+    }
+    return;
+  }
+  bru.setEnvVar('access_token', res.body.access_token);
+  if (res.body.refresh_token) bru.setEnvVar('refresh_token', res.body.refresh_token);
+
+  const decode = (part) => {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='), 'base64').toString());
+  };
+  const claims = decode(res.body.access_token.split('.')[1]);
+  console.log('device signed in as:', claims.sub, claims.email || '', JSON.stringify(claims.role || ''));
+  console.log('access token claims:', JSON.stringify(claims, null, 2));
+}
+
+docs {
+  The device flow's second half: the device polls the token endpoint with its {{device_code}}.
+  Before you approve in the browser it answers 400 `authorization_pending`; after you approve it
+  answers with ordinary user tokens — minted for whoever approved, through the same principal
+  funnel as every sign-in. Exports {{access_token}} / {{refresh_token}} like the sign-in
+  requests, so everything downstream works on a device-flow token too.
+}

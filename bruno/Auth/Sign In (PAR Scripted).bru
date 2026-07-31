@@ -1,0 +1,145 @@
+meta {
+  name: Sign In (PAR Scripted)
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{auth_url}}/connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: authorization_code
+  client_id: {{client_id}}
+  redirect_uri: {{callback_url}}
+  code: {{scripted_code}}
+  code_verifier: {{scripted_verifier}}
+}
+
+script:pre-request {
+  // "Sign In (Scripted)" with one twist: the authorize parameters are pushed over the back
+  // channel first (PAR, RFC 9126), and the front-channel authorize URL carries nothing but the
+  // client id and the one-time request_uri handle. Compare the authorize call here with the
+  // plain scripted request's — that shrinking URL is the whole point.
+  const axios = require('axios');
+  const CryptoJS = require('crypto-js');
+
+  const base = bru.getEnvVar('auth_url');
+  const jar = {};
+  const keep = (response) => {
+    // Bruno's sandbox folds a lone Set-Cookie header into a plain string; several may arrive
+    // as an array or one comma-joined string. The lookahead split only breaks before a
+    // `name=` shape, so commas inside expires dates survive.
+    const header = (response.headers || {})['set-cookie'];
+    const list = Array.isArray(header) ? header : String(header || '').split(/,(?=\s*[^;,\s]+?=)/);
+    list.filter(Boolean).forEach((cookie) => {
+      const [pair] = cookie.split(';');
+      const split = pair.indexOf('=');
+      if (split > 0) jar[pair.slice(0, split).trim()] = pair.slice(split + 1);
+    });
+  };
+  const cookies = () => Object.entries(jar).map(([name, value]) => name + '=' + value).join('; ');
+  const encode = (fields) => Object.entries(fields)
+    .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value))
+    .join('&');
+
+  const send = async (config) => {
+    try {
+      return await axios({ maxRedirects: 0, ...config });
+    } catch (error) {
+      if (error && error.response) return error.response;
+      throw error;
+    }
+  };
+
+  const form = await send({ method: 'get', url: base + '/signin' });
+  keep(form);
+  const antiforgery = String(form.data).match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+  if (!antiforgery) throw new Error('no antiforgery token on /signin — is auth up on ' + base + '?');
+
+  const signIn = await send({
+    method: 'post',
+    url: base + '/signin',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: cookies() },
+    data: encode({
+      Email: bru.getEnvVar('signin_email'),
+      Password: bru.getEnvVar('signin_password'),
+      __RequestVerificationToken: antiforgery[1],
+    }),
+  });
+  keep(signIn);
+  if (signIn.status !== 302) {
+    throw new Error('sign-in was refused (' + signIn.status + ') — check signin_email / signin_password');
+  }
+
+  const verifier = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+  const challenge = CryptoJS.SHA256(verifier)
+    .toString(CryptoJS.enc.Base64)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  // The back channel: every authorize parameter POSTed straight to auth, never a browser URL.
+  const push = await send({
+    method: 'post',
+    url: base + '/connect/par',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: encode({
+      client_id: bru.getEnvVar('client_id'),
+      redirect_uri: bru.getEnvVar('callback_url'),
+      response_type: 'code',
+      scope: bru.getEnvVar('signin_scope'),
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      state: 'par-scripted',
+    }),
+  });
+  if (push.status !== 201) {
+    throw new Error('PAR push was refused (' + push.status + '): ' + JSON.stringify(push.data));
+  }
+  console.log('pushed; request_uri =', push.data.request_uri, '(expires in ' + push.data.expires_in + 's)');
+
+  const authorize = await send({
+    method: 'get',
+    url: base + '/connect/authorize?' + encode({
+      client_id: bru.getEnvVar('client_id'),
+      request_uri: push.data.request_uri,
+    }),
+    headers: { cookie: cookies() },
+  });
+  const location = String((authorize.headers || {}).location || '');
+  const code = (location.match(/[?&]code=([^&]+)/) || [])[1];
+  if (!code) {
+    throw new Error('authorize did not return a code: ' + authorize.status + ' ' + location);
+  }
+
+  bru.setVar('scripted_code', decodeURIComponent(code));
+  bru.setVar('scripted_verifier', verifier);
+}
+
+script:post-response {
+  if (res.status !== 200) return;
+  bru.setEnvVar('access_token', res.body.access_token);
+  if (res.body.refresh_token) bru.setEnvVar('refresh_token', res.body.refresh_token);
+
+  const decode = (part) => {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='), 'base64').toString());
+  };
+  const claims = decode(res.body.access_token.split('.')[1]);
+  console.log('signed in (via PAR) as:', claims.sub, claims.email || '', JSON.stringify(claims.role || ''));
+}
+
+docs {
+  "Sign In (Scripted)" run through PAR (RFC 9126): the scope, redirect, PKCE challenge and state
+  travel the back channel as a POST to /connect/par, and the browser-visible authorize URL
+  carries only `client_id` and a one-time `request_uri` handle. Same sign-in, same token — but
+  nothing sensitive ever sits in a URL, history or access log, and the request can't be tampered
+  with between the client and auth.
+
+  PAR is *allowed* for every browser client; making it mandatory is a per-client seed opt-in
+  (`RequirePushedAuthorizationRequests`), meant for clients like the production BFF once it
+  pushes. Exports {{access_token}} / {{refresh_token}} exactly like the plain scripted sign-in.
+}

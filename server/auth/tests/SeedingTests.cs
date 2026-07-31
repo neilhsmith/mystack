@@ -49,6 +49,27 @@ public sealed class SeedingTests(AuthAppFixture app)
         );
         machine.ShouldNotBeNull();
 
+        // Raw wire literals on purpose: the assertions must break if the seeder's shapes drift.
+        var device = await applications.FindByClientIdAsync(
+            AuthAppFixture.DeviceClientId,
+            cancellationToken
+        );
+        device.ShouldNotBeNull();
+        var devicePermissions = await applications.GetPermissionsAsync(device, cancellationToken);
+        devicePermissions.ShouldContain("ept:device_authorization");
+        devicePermissions.ShouldContain("gt:urn:ietf:params:oauth:grant-type:device_code");
+        devicePermissions.ShouldNotContain("ept:authorization");
+
+        var par = await applications.FindByClientIdAsync(
+            AuthAppFixture.ParClientId,
+            cancellationToken
+        );
+        par.ShouldNotBeNull();
+        (await applications.GetRequirementsAsync(par, cancellationToken)).ShouldContain("ft:par");
+        (await applications.GetPermissionsAsync(client, cancellationToken)).ShouldContain(
+            "ept:pushed_authorization"
+        );
+
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
         admin.ShouldNotBeNull();
@@ -234,7 +255,7 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         var applications =
             scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-        (await applications.CountAsync(cancellationToken)).ShouldBe(2);
+        (await applications.CountAsync(cancellationToken)).ShouldBe(4);
     }
 
     private AuthApplicationFactory Factory(

@@ -21,14 +21,20 @@ internal sealed class SeedClient
     public string? DisplayName { get; init; }
 
     // Public and Confidential are browser clients (authorization code + PKCE + refresh);
-    // Machine is client credentials only, with no browser anywhere in its life.
+    // Machine is client credentials only, with no browser anywhere in its life; Device is the
+    // device authorization grant — a browserless client that polls for tokens while the user
+    // approves from a real browser somewhere else.
     public SeedClientType Type { get; init; }
 
-    // Required for a confidential or machine client, forbidden for a public one — both
-    // misconfigurations fail startup.
+    // Required for a confidential or machine client, forbidden for a public or device one —
+    // every misconfiguration fails startup.
     public string? Secret { get; init; }
 
-    // Required for a browser client, forbidden for a machine one.
+    // Browser clients only: when true the client is refused plain front-channel authorize URLs
+    // and must push its parameters through /connect/par first (RFC 9126).
+    public bool RequirePushedAuthorizationRequests { get; init; }
+
+    // Required for a browser client, forbidden for a machine or device one.
     public IList<string> RedirectUris { get; init; } = [];
 
     public IList<string> PostLogoutRedirectUris { get; init; } = [];
@@ -45,6 +51,7 @@ internal enum SeedClientType
     Public,
     Confidential,
     Machine,
+    Device,
 }
 
 internal sealed class SeedUser

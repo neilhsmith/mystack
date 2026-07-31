@@ -24,6 +24,12 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public const string MachineClientId = "test-machine";
     public const string MachineClientSecret = "a secret only machines know";
 
+    // The seeded device-flow client the device-dance tests poll as, and the seeded PAR-required
+    // client the pushed-authorization tests drive.
+    public const string DeviceClientId = "test-device";
+    public const string DeviceClientDisplayName = "Test device";
+    public const string ParClientId = "test-par";
+
     // The images compose runs, so the migration and the broker topology are proven against what
     // the stack actually uses rather than whatever `latest` happens to be.
     private readonly PostgreSqlContainer database = new PostgreSqlBuilder(

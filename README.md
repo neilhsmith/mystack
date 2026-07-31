@@ -30,8 +30,10 @@ sender for every environment, with the worker delivering published emails to Mai
 and the account flows: register + email confirmation, forgot/reset password, change password +
 notification, every email published atomically through the EF outbox and delivered by the
 worker, anti-enumeration throughout — plus permission overrides, minted into access-token
-claims on every issuance, and the wider token surface: userinfo, the client-credentials grant
-for machine clients, and introspection for confidential callers — with the role, permission-claim
+claims on every issuance, and the whole remaining protocol surface: userinfo, the
+client-credentials grant for machine clients, introspection for confidential callers, the
+device authorization grant with its signed-in verification page, and pushed authorization
+requests (PAR) with a per-client opt-in requirement — with the role, permission-claim
 and scope names shared through `server/shared/MyStack.Contracts`, one spelling for every server.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".

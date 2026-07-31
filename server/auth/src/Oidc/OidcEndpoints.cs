@@ -13,9 +13,10 @@ internal static class OidcEndpoints
 {
     public static WebApplication MapAuthOidcEndpoints(this WebApplication app)
     {
-        // Revocation and introspection have no mapping on purpose: OpenIddict validates,
-        // revokes and introspects entirely on its own, and a passthrough handler would have
-        // nothing to add.
+        // Revocation, introspection, device authorization and PAR have no mapping on purpose:
+        // OpenIddict handles all four entirely on its own, and a passthrough handler would have
+        // nothing to add. The end-user verification endpoint is the Verify Razor page — it
+        // renders forms, so it lives with the other pages.
         app.MapMethods("/connect/authorize", [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync);
         app.MapPost("/connect/token", ExchangeAsync);
         app.MapMethods("/connect/userinfo", [HttpMethods.Get, HttpMethods.Post], UserInfoAsync);
@@ -122,14 +123,19 @@ internal static class OidcEndpoints
             );
         }
 
-        if (!request.IsAuthorizationCodeGrantType() && !request.IsRefreshTokenGrantType())
+        if (
+            !request.IsAuthorizationCodeGrantType()
+            && !request.IsRefreshTokenGrantType()
+            && !request.IsDeviceCodeGrantType()
+        )
         {
-            // Unreachable while the server config allows exactly three flows; reaching it means
+            // Unreachable while the server config allows exactly four flows; reaching it means
             // the config changed without this handler.
             throw new InvalidOperationException("The grant type is not supported.");
         }
 
-        // The principal stored inside the authorization code or refresh token.
+        // The principal stored inside the authorization code, refresh token or device code —
+        // for a device code, the one the verification page attached when the user approved.
         var result = await context.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
         );

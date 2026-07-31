@@ -18,8 +18,12 @@ internal static class OAuth
         return (verifier, challenge);
     }
 
-    public static string AuthorizeUrl(string challenge, string scope) =>
-        $"/connect/authorize?client_id={AuthAppFixture.ClientId}"
+    public static string AuthorizeUrl(
+        string challenge,
+        string scope,
+        string clientId = AuthAppFixture.ClientId
+    ) =>
+        $"/connect/authorize?client_id={clientId}"
         + $"&redirect_uri={Uri.EscapeDataString(AuthAppFixture.RedirectUri)}"
         + $"&response_type=code&scope={Uri.EscapeDataString(scope)}"
         + $"&code_challenge={challenge}&code_challenge_method=S256&state=xyz";

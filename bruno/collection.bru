@@ -19,6 +19,11 @@ docs {
   3. The raw pairs in "Auth / Account" — the account flows one HTTP request at a time, for
      seeing the anti-enumeration answers and token handling on the wire.
 
+  Two protocol extras ride on top: "Sign In (PAR Scripted)" is the scripted dance with the
+  authorize parameters pushed over the back channel (RFC 9126) instead of riding the URL, and
+  the "Device Flow" pair plays a browserless device — send Start, approve the printed link in a
+  real browser, send Poll and watch the tokens arrive (RFC 8628).
+
   Requests that need a user token carry `Bearer {{access_token}}` — whichever sign-in ran last
   wins.
 

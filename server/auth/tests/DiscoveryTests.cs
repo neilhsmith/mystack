@@ -28,6 +28,14 @@ public sealed class DiscoveryTests(AuthAppFixture app)
             .GetProperty("revocation_endpoint")
             .GetString()
             .ShouldEndWith("/connect/revocation");
+        document
+            .GetProperty("device_authorization_endpoint")
+            .GetString()
+            .ShouldEndWith("/connect/device");
+        document
+            .GetProperty("pushed_authorization_request_endpoint")
+            .GetString()
+            .ShouldEndWith("/connect/par");
 
         document
             .GetProperty("code_challenge_methods_supported")
@@ -46,7 +54,7 @@ public sealed class DiscoveryTests(AuthAppFixture app)
     }
 
     [Fact]
-    public async Task GrantTypes_AreExactlyCodeRefreshAndClientCredentials_NeverPassword()
+    public async Task GrantTypes_AreExactlyTheFourFlows_NeverPassword()
     {
         var document = await GetDiscoveryDocumentAsync();
 
@@ -59,7 +67,12 @@ public sealed class DiscoveryTests(AuthAppFixture app)
         // The exact list is the assertion; password called out anyway because it is the one
         // non-negotiable a copy-paste would reintroduce (architecture §3.4).
         grantTypes.ShouldBe(
-            ["authorization_code", "refresh_token", "client_credentials"],
+            [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+                "urn:ietf:params:oauth:grant-type:device_code",
+            ],
             ignoreOrder: true
         );
         grantTypes.ShouldNotContain("password");

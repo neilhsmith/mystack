@@ -1,0 +1,50 @@
+@page "/connect/verify"
+@model MyStack.Auth.Pages.VerifyModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect a device</title>
+</head>
+<body>
+    <main>
+        <h1>Connect a device</h1>
+        @if (Model.Done == "approved")
+        {
+            <p role="status">Device connected. You can return to your device — it will finish signing in on its own.</p>
+        }
+        else if (Model.Done == "denied")
+        {
+            <p role="status">Request denied. The device was not signed in.</p>
+        }
+        else if (Model.UserCode is not null)
+        {
+            <p><strong>@(Model.ClientName ?? "A device")</strong> is asking to sign in as you.</p>
+            @if (Model.Scopes.Count > 0)
+            {
+                <p>It is requesting: @string.Join(", ", Model.Scopes)</p>
+            }
+            <form method="post">
+                <input type="hidden" name="user_code" value="@Model.UserCode" />
+                <button type="submit" asp-page-handler="Approve">Approve</button>
+                <button type="submit" asp-page-handler="Deny">Deny</button>
+            </form>
+        }
+        else
+        {
+            @if (Model.Error is not null)
+            {
+                <p role="alert">@Model.Error</p>
+            }
+            <form method="get">
+                <div>
+                    <label for="user_code">Enter the code shown on your device</label>
+                    <input id="user_code" name="user_code" type="text" autocomplete="one-time-code" autofocus required />
+                </div>
+                <button type="submit">Continue</button>
+            </form>
+        }
+    </main>
+</body>
+</html>

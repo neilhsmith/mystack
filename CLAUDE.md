@@ -26,7 +26,10 @@ to the worker's queue, anti-enumeration throughout, the four `auth.*` account co
 grant/deny rows with optional expiry, minted into `perm`/`perm_deny` access-token claims on
 every issuance, the strings opaque to auth — and the wider token surface: userinfo (scope-gated,
 agreeing with the id token by construction), the client-credentials grant with the seeder's
-`Machine` client shape, and introspection for confidential callers only — and
+`Machine` client shape, and introspection for confidential callers only — and the protocol
+extras: the device authorization grant (the `Device` client shape, `/connect/device`, the
+signed-in `/connect/verify` approval page) and PAR with its per-client
+`RequirePushedAuthorizationRequests` opt-in — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
 spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
