@@ -1,0 +1,32 @@
+@page "/resend-confirmation"
+@model MyStack.Auth.Pages.ResendConfirmationModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resend confirmation</title>
+</head>
+<body>
+    <main>
+        @if (Model.Sent)
+        {
+            <h1>Check your email</h1>
+            <p>If that address needs it, we've sent a confirmation email.</p>
+        }
+        else
+        {
+            <h1>Resend confirmation</h1>
+            <p>Enter your email address and we'll send the confirmation email again.</p>
+            <form method="post">
+                <div asp-validation-summary="All" role="alert"></div>
+                <div>
+                    <label asp-for="Email">Email</label>
+                    <input asp-for="Email" type="email" autocomplete="username" required />
+                </div>
+                <button type="submit">Resend confirmation</button>
+            </form>
+        }
+    </main>
+</body>
+</html>

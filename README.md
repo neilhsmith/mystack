@@ -25,9 +25,11 @@ sign-in page, and `server/shared/MyStack.Messaging` — Wolverine over RabbitMQ 
 a retry-then-dead-letter policy, and the `server/worker` deployable consuming alongside auth,
 whose daily token-prune flows through the broker — plus config-driven seeding, so a fresh
 database boots to working clients, roles and accounts, provable from the committed
-`bruno/` collection ([docs/auth.md](docs/auth.md)), and `server/shared/MyStack.Email` — one SMTP
-sender for every environment, with the worker delivering published emails to Mailpit locally.
-No account flows yet.
+`bruno/` collection ([docs/auth.md](docs/auth.md)), `server/shared/MyStack.Email` — one SMTP
+sender for every environment, with the worker delivering published emails to Mailpit locally —
+and the account flows: register + email confirmation, forgot/reset password, change password +
+notification, every email published atomically through the EF outbox and delivered by the
+worker, anti-enumeration throughout.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 

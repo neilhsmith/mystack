@@ -2,6 +2,22 @@ auth {
   mode: oauth2
 }
 
+docs {
+  Two ways to drive auth from here:
+
+  1. The browser flow — the collection's OAuth2 settings below run the real authorization code +
+     PKCE dance (there is deliberately no password grant to shortcut it). "Auth / Sign In
+     (Browser)" is the front door: it opens auth's sign-in page in a window, exchanges the
+     callback code, exports {{access_token}}, and every `auth: inherit` request rides the cached,
+     auto-refreshing token from then on.
+
+  2. The raw pairs in "Auth / Account" — the same account flows one HTTP request at a time, for
+     seeing the anti-enumeration answers and token handling on the wire.
+
+  Prerequisites: docker compose up -d, auth on :5100, and the worker on :5200 (it delivers the
+  emails to Mailpit at http://localhost:8025).
+}
+
 auth:oauth2 {
   grant_type: authorization_code
   callback_url: {{callback_url}}

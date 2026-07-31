@@ -1,0 +1,23 @@
+meta {
+  name: Sign In - Submit
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{auth_url}}/signin
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  Email: {{account_email}}
+  Password: {{account_new_password}}
+  __RequestVerificationToken: {{csrf}}
+}
+
+docs {
+  Signs in with account_new_password (the value after a reset — swap the field to
+  {{account_password}} if you haven't reset). A 302 to "/" means success; the Identity cookie is
+  now in Bruno's jar for the change-password pair.
+}

@@ -1,0 +1,16 @@
+meta {
+  name: Resend Confirmation - Load Form
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{auth_url}}/resend-confirmation
+  body: none
+  auth: none
+}
+
+script:post-response {
+  const match = res.body.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+  bru.setVar('csrf', match ? match[1] : '');
+}

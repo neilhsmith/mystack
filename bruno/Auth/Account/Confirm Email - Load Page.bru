@@ -1,0 +1,22 @@
+meta {
+  name: Confirm Email - Load Page
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{auth_url}}/confirm-email?userId={{confirm_user_id}}&token={{confirm_token}}
+  body: none
+  auth: none
+}
+
+script:post-response {
+  const match = res.body.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+  bru.setVar('csrf', match ? match[1] : '');
+}
+
+docs {
+  The GET a mailbox link-scanner would make: it renders the confirm button and changes nothing —
+  the account stays unconfirmed until "Confirm Email - Submit" POSTs. That split is deliberate
+  (docs/auth-track.md step 8): prefetchers must not consume the single-use token.
+}

@@ -2,13 +2,12 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Shouldly;
 
 namespace MyStack.Auth.Tests;
 
 // The client half of the protocol, shared by every flow test.
-internal static partial class OAuth
+internal static class OAuth
 {
     public static (string Verifier, string Challenge) CreatePkcePair()
     {
@@ -25,38 +24,19 @@ internal static partial class OAuth
         + $"&response_type=code&scope={Uri.EscapeDataString(scope)}"
         + $"&code_challenge={challenge}&code_challenge_method=S256&state=xyz";
 
-    public static async Task<HttpResponseMessage> SignInAsync(
+    public static Task<HttpResponseMessage> SignInAsync(
         HttpClient client,
         string email,
         string password,
         string? returnUrl = null,
         CancellationToken cancellationToken = default
-    )
-    {
-        var url = returnUrl is null
-            ? "/signin"
-            : $"/signin?ReturnUrl={Uri.EscapeDataString(returnUrl)}";
-
-        var page = await client.GetAsync(url, cancellationToken);
-        page.EnsureSuccessStatusCode();
-
-        var html = await page.Content.ReadAsStringAsync(cancellationToken);
-        var antiforgery = AntiforgeryRegex().Match(html);
-        antiforgery.Success.ShouldBeTrue("the sign-in page should render an antiforgery token");
-
-        return await client.PostAsync(
-            url,
-            new FormUrlEncodedContent(
-                new Dictionary<string, string>
-                {
-                    ["Email"] = email,
-                    ["Password"] = password,
-                    ["__RequestVerificationToken"] = antiforgery.Groups[1].Value,
-                }
-            ),
+    ) =>
+        PageForms.SubmitAsync(
+            client,
+            returnUrl is null ? "/signin" : $"/signin?ReturnUrl={Uri.EscapeDataString(returnUrl)}",
+            new Dictionary<string, string> { ["Email"] = email, ["Password"] = password },
             cancellationToken
         );
-    }
 
     /// <summary>
     /// Drives /connect/authorize with an already signed-in client and returns the code captured
@@ -110,7 +90,4 @@ internal static partial class OAuth
 
     private static string Base64UrlEncode(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    [GeneratedRegex("name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"")]
-    private static partial Regex AntiforgeryRegex();
 }

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -6,11 +7,16 @@ using OpenIddict.EntityFrameworkCore.Models;
 namespace MyStack.Auth.Data;
 
 public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
-    : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options)
+    : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>(options),
+        IDataProtectionKeyContext
 {
     // auth and api share one Postgres database and take a schema each — the same split that gives
     // MyStack.Messaging its wolverine_<app> envelope schemas (docs/architecture.md §3.3).
     public const string Schema = "auth";
+
+    // The data-protection key ring (IdentityExtensions) — what keeps emailed account tokens
+    // valid across restarts and replicas.
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

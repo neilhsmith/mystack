@@ -1,0 +1,61 @@
+meta {
+  name: Sign In (Browser)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{auth_url}}/.well-known/openid-configuration
+  body: none
+  auth: inherit
+}
+
+script:post-response {
+  // `auth: inherit` runs the collection's OAuth2 config (authorization code + PKCE): with no
+  // cached token, Bruno opens a browser window on the real /signin page, catches the callback
+  // on :8090 and exchanges the code. Export what it got so {{access_token}} works anywhere.
+  const authorization = req.getHeader('Authorization') || '';
+  const jwt = authorization.replace(/^Bearer /, '');
+  if (!jwt) {
+    console.log('no token — the sign-in window was closed or the dance failed; run again');
+    return;
+  }
+  bru.setEnvVar('access_token', jwt);
+
+  const decode = (part) => {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='), 'base64').toString());
+  };
+  const claims = decode(jwt.split('.')[1]);
+  console.log('signed in as:', claims.sub, claims.email || '', JSON.stringify(claims.role || ''));
+  console.log('expires:', new Date(claims.exp * 1000).toISOString(), '(auto-refreshed by Bruno)');
+
+  // Newer Bruno versions expose the stored OAuth2 credentials to scripts; export the refresh
+  // token too when this one does.
+  try {
+    if (typeof bru.getOauth2CredentialVar === 'function') {
+      const refresh = bru.getOauth2CredentialVar('$oauth2.credentials.refresh_token');
+      if (refresh) bru.setEnvVar('refresh_token', refresh);
+    }
+  } catch (ignored) {}
+}
+
+docs {
+  The front door: run this to sign in through the real browser flow and come back holding tokens.
+
+  What happens: Bruno opens a window on auth's own sign-in page (the same page every real client
+  sees), you sign in, auth redirects to Bruno's callback with a code, Bruno exchanges it — PKCE,
+  no client secret — then this script stashes the access token in the `access_token` env var and
+  logs the claims to the console drawer. Every request with `auth: inherit` uses the cached token
+  automatically (and refreshes it); `{{access_token}}` is for anything else.
+
+  Registering a new account, entirely in the browser: the sign-in window links to
+  "Create an account". Register there (or at http://localhost:5100/register), open Mailpit at
+  http://localhost:8025, click the emailed link, press Confirm — then run this request again and
+  sign in with the new credentials.
+
+  Switching users: clear the cached token in the collection's Auth settings first, or Bruno will
+  keep using the one it has. If the window then signs you straight back in without showing the
+  form, its cookie session is still alive — close and reopen Bruno to drop it (the sign-out
+  story lands with the end-session work in the design/finalize pass).
+}

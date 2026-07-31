@@ -20,12 +20,12 @@ Auth is closed when all of these hold:
       committed Bruno collection, not from memory.
 - [ ] The protocol surface is complete and proven from a client's seat: userinfo, introspection,
       client credentials, the device flow, PAR, and back-channel logout, each tested.
-- [ ] Every account flow works end to end **including its email**: register → confirm, forgot →
+- [x] Every account flow works end to end **including its email**: register → confirm, forgot →
       reset, change password → notification.
 - [ ] Every rendered page is designed, not scaffolded, and passes an accessibility pass.
 - [x] Seeding brings a fresh database to a working state in dev and in production, from config.
 - [ ] Logs, traces and metrics come out of auth **running on its own**, with no other service up.
-- [ ] The test suite covers the token shape, anti-enumeration, the seeding pass, and every account
+- [x] The test suite covers the token shape, anti-enumeration, the seeding pass, and every account
       flow's failure branches.
 - [ ] `docs/auth.md` exists and describes what was actually built.
 - [ ] A production-hardening review has been done and its findings are either fixed or recorded.

@@ -1,0 +1,37 @@
+meta {
+  name: Mailpit - Read Latest
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{mailpit_url}}/api/v1/message/latest
+  body: none
+  auth: none
+}
+
+script:post-response {
+  // Pull the account link out of the newest message and stash its parts for the next requests —
+  // works for both the confirmation and the reset email, keyed by the link's path.
+  const text = (res.body && res.body.Text) || '';
+  const link = (text.match(/https?:\/\/\S+/) || [])[0] || '';
+  const userId = (link.match(/[?&]userId=([^&\s]+)/) || [])[1] || '';
+  const token = (link.match(/[?&]token=([^&\s]+)/) || [])[1] || '';
+  if (link.includes('/confirm-email')) {
+    bru.setVar('confirm_user_id', userId);
+    bru.setVar('confirm_token', token);
+  }
+  if (link.includes('/reset-password')) {
+    bru.setVar('reset_user_id', userId);
+    bru.setVar('reset_token', token);
+  }
+  console.log('subject:', res.body && res.body.Subject);
+  console.log('link:', link);
+}
+
+docs {
+  Reads the newest Mailpit message (the inbox UI is http://localhost:8025) and extracts the
+  emailed link's userId/token. Run it after "Register - Submit" (confirmation link) and again
+  after "Forgot Password - Submit" (reset link). The worker must be running, or nothing is
+  delivered and this returns an older message — check the logged subject.
+}

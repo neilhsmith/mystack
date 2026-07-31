@@ -19,8 +19,11 @@ roles/scopes from code, clients + accounts from config, advisory-locked seed-bef
 the `bruno/` collection driving the PKCE flow against the seeded client — and email:
 `server/shared/MyStack.Email` (`IEmailSender` over SMTP/MailKit, the `SendEmail` contract, the
 renderer seam, the `email.sends` counter), with the worker delivering published `SendEmail`
-messages to Mailpit locally.
-No account flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+messages to Mailpit locally — and the account flows: register + email confirmation, forgot/reset
+password, change password + notification, every email published through the Wolverine EF outbox
+to the worker's queue, anti-enumeration throughout, the four `auth.*` account counters, and the
+`bruno/Auth/Account` folder driving it all by hand.
+[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
 

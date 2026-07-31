@@ -1,12 +1,15 @@
+using MyStack.Auth.Account;
 using MyStack.Auth.Data;
 using MyStack.Auth.Health;
 using MyStack.Auth.Messaging;
 using MyStack.Auth.Oidc;
 using MyStack.Auth.Security;
 using MyStack.Auth.Telemetry;
+using MyStack.Email;
 using MyStack.Messaging;
 using MyStack.Observability;
 using Wolverine;
+using Wolverine.EntityFrameworkCore;
 using Wolverine.RabbitMQ;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,12 +33,18 @@ builder.AddMessaging(
         // is the test host, and Wolverine would scan it instead of this app's handlers.
         options.ApplicationAssembly = typeof(Program).Assembly;
 
-        // auth consumes its own maintenance messages; cross-app work (email) goes to the
-        // worker's queue when it exists.
+        // The EF outbox: account pages publish through IDbContextOutbox<AuthDbContext>, so a
+        // user write and its outgoing email commit in one transaction (architecture §3.3).
+        options.UseEntityFrameworkCoreTransactions();
+
+        // auth consumes its own maintenance messages; account emails are cross-app work,
+        // published to the worker's queue and delivered there.
         options.PublishMessage<PruneOidcTokens>().ToRabbitQueue("auth");
+        options.PublishMessage<SendEmail>().ToRabbitQueue("worker");
     }
 );
 builder.Services.AddScheduledMessage<PruneOidcTokens>("0 3 * * *");
+builder.AddAccountFlows();
 builder.Services.AddSingleton<AuthMetrics>();
 builder.Services.AddRazorPages();
 builder.Services.AddAuthHealthChecks();

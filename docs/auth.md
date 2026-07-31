@@ -3,14 +3,15 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton, telemetry, the OpenIddict server, messaging, and
-seeding**: ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
-`MyStack.Observability` wired in, OpenIddict issuing tokens — authorization code + PKCE with
-refresh tokens, the four protocol endpoints, a functional sign-in page, request logging and the
-first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ, with the daily
-token-prune flowing through the broker, and config-driven seeding bringing a fresh database to a
-working state before the host serves. There is no account flow yet — sign-up, confirmation and
-password reset arrive in auth-track step 8.
+**What exists today is the host skeleton, telemetry, the OpenIddict server, messaging, seeding,
+and the account flows**: ASP.NET Core Identity over EF Core/Postgres, health checks, the
+security-header set, `MyStack.Observability` wired in, OpenIddict issuing tokens — authorization
+code + PKCE with refresh tokens, the four protocol endpoints, a functional sign-in page, request
+logging and the first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ,
+with the daily token-prune flowing through the broker, config-driven seeding bringing a fresh
+database to a working state before the host serves, and the account flows: register + email
+confirmation, forgot/reset password, change password + notification, every email published
+through the EF outbox and delivered by `server/worker`.
 [auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
 is the inventory.
 
@@ -30,8 +31,12 @@ in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 
 The committed [Bruno](https://www.usebruno.com/) collection in `bruno/` drives the real
 authorization-code + PKCE dance against the seeded `bruno` client: open the folder in Bruno,
-pick the **Local** environment, use the collection's OAuth2 settings to fetch a token (sign in as
-the global admin), then run **Auth → Decode Access Token** and read the claims off the console.
+pick the **Local** environment, and run **Auth → Sign In (Browser)** — it opens the real sign-in
+page (which links to register), exchanges the callback code, and exports `{{access_token}}`;
+**Auth → Decode Access Token** prints the claims. **Auth → Account** is the same flows one HTTP
+request at a time — register, read the confirmation link out of Mailpit, confirm, forgot/reset,
+sign in, change password — for seeing the anti-enumeration answers and token handling on the
+wire, with the worker running so the emails actually deliver.
 
 ## Configuration
 
@@ -48,6 +53,7 @@ the global admin), then run **Auth → Decode Access Token** and read the claims
 | `Oidc:RefreshTokenLifetime` | `14.00:00:00` | Absolute horizon; the token itself rotates on every use. |
 | `ConnectionStrings:MessageBroker` | none | Required, same no-fallback rule as the database: failing to boot beats silently dropping messages. |
 | `Messaging:RetryCooldownsInSeconds` | `[1, 5, 30]` | Seconds between redelivery attempts after a handler throws, one entry per retry; past the last one the message dead-letters. Tests set `[0]`. |
+| `Account:PublicBaseUrl` | none | Required, validated at boot as an absolute http(s) URL. Emailed confirm/reset links are built from it — never from the request's `Host` header, which is client-writable and would let a forged forgot-password request steer a victim's real reset link to an attacker's domain. |
 
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
@@ -65,6 +71,11 @@ convention for it. Identity's `AspNet*` table names are replaced with `users`, `
 `user_claims`, `user_roles`, `user_logins`, `user_tokens` and `role_claims`: they describe the
 framework rather than this schema, and renaming them later costs a migration.
 
+`data_protection_keys` holds ASP.NET's data-protection key ring — the keys behind the
+confirmation/reset tokens and the cookies. Persisting them here (with a pinned application name,
+since the default derives from the content-root path) is what keeps an emailed link valid across
+restarts, replicas and deploy-path changes.
+
 Keys are **application-generated version 7 UUIDs**. The timestamp in the leading bits means
 Postgres, which orders `uuid` by its canonical byte order, keeps appending to the primary key index
 instead of fragmenting it. Generating them in the entity rather than the database also means the
@@ -76,8 +87,11 @@ instead of fragmenting it. Generating them in the entity rather than the databas
   switched on later over users who never went through confirmation.
 - **Passwords: twelve characters, no composition rules.** NIST SP 800-63B's position — length
   carries the strength, and mandatory character classes mostly produce predictable substitutions.
-- Default token providers are registered, so email confirmation and password reset have their
-  tokens available when those flows arrive.
+- **Two token lifespans.** Email confirmation uses Identity's default provider (24 hours); password
+  reset gets its own provider at **2 hours** — a reset token is a full account-takeover credential
+  that sets a new password outright, while a confirmation token only flips a boolean.
+- **Security stamp validation every 5 minutes** (Identity defaults to 30): a password change
+  rotates the stamp, and this interval bounds how long another live cookie session outruns it.
 - Identity's principal uses the OIDC claim types (`sub`, `name`, `role`, `email`) instead of its
   SOAP-era defaults, so the cookie and every token OpenIddict mints speak the same names.
 
@@ -142,6 +156,58 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 - The page runs under its own security-header policy, which differs from the default in exactly
   one directive: `form-action 'self'`.
 
+## Account flows
+
+Six Razor pages — functional now, designed in the finalize pass:
+
+| Page | Who | Does |
+| --- | --- | --- |
+| `/register` | anonymous | creates the account, publishes the confirmation email |
+| `/confirm-email?userId=…&token=…` | emailed link | GET renders a Confirm button; POST consumes the token |
+| `/resend-confirmation` | anonymous | reissues the confirmation for an existing unconfirmed account |
+| `/forgot-password` | anonymous | publishes the reset email for an existing confirmed account |
+| `/reset-password?userId=…&token=…` | emailed link | GET renders the new-password form; POST performs the reset |
+| `/change-password` | signed-in cookie | rotates the password with the current one in hand |
+
+**Emailed links are pages that POST, never endpoints that act on GET.** A mailbox link-scanner
+prefetching the URL renders a form and changes nothing; the button's POST is what consumes the
+single-use token. The link stays an ordinary copyable URL — the GET needs no prior state and
+issues the antiforgery cookie itself, so pasting it into any browser at any later time works.
+There is deliberately no JavaScript auto-submit, which would re-open the hole for scanners that
+execute JS. The boring branches are first-class: already-confirmed says so and offers sign-in,
+invalid/expired offers a resend or a new link, and both collapse unknowable causes into one
+generic message.
+
+**The token is a credential travelling in a URL**, so: single-use (consuming it rotates the
+security stamp or flips the flag it checks), short expiry (2 h reset / 24 h confirmation),
+`Referrer-Policy: no-referrer` on every response, OTel URL-query redaction and query-free request
+logging (Telemetry below), and links built only from `Account:PublicBaseUrl`. Identity's raw
+tokens are standard Base64 — `+`, `/`, `=`, exactly what query strings and mail-client link
+rewriters mangle — so they travel Base64Url-encoded over the UTF-8 bytes, and a token that fails
+decoding reads as invalid rather than throwing a distinguishable 500.
+
+**Every email rides the EF outbox to the worker.** Pages publish `SendEmail` through
+`IDbContextOutbox<AuthDbContext>` inside one transaction with the user write, so "user created +
+email published" (and "password reset + grants revoked + owner notified") commit together or not
+at all — architecture §3.3's outbox, now real. The worker delivers over SMTP; auth never sends
+inline from a request. The bodies come from `IEmailRenderer` implementations in auth
+(`ConfirmationEmail`, `PasswordResetEmail`, `PasswordChangedEmail`) — subjects and copy are
+domain knowledge, so they live here, not in the library.
+
+**Anti-enumeration throughout** (architecture §3): register, resend and forgot answer the same
+generic page whether the address exists, is unconfirmed, or is already taken — and register
+validates password policy *before* the existence lookup, so a deliberately weak password can't
+probe either. Reset links go to confirmed addresses only: an unconfirmed address was never proven
+to belong to its registrant, and a reset link would leapfrog confirmation. The honest outcomes
+live in the metric tags. Change-password is the deliberate exception — the caller is already that
+account's session, so "incorrect password" reveals nothing.
+
+**A credential change ends the sessions it should.** Reset and change both revoke the subject's
+OpenIddict tokens and authorizations (refresh tokens on other devices die immediately; access
+tokens age out within 15 minutes), rotate the security stamp (other cookie sessions die at the
+next 5-minute check; the browser that made the change is refreshed and survives), and publish the
+password-changed notification to the account's address.
+
 ## Seeding
 
 Architecture §3.4's model, in full: one always-on-by-default `Database:Seed` switch over one safe
@@ -169,9 +235,9 @@ that quietly leaves nobody able to administrate.
 
 **Accounts carry no password in production.** A `Seed:Users` entry without a `Password` is
 created with a confirmed email and no usable password; it is activated through the ordinary
-forgot-password flow once account flows exist (step 8) — only the address is configured.
-Development supplies passwords directly (one convenience account per role), because convenience
-is the entire point there.
+forgot-password flow — only the address is configured, and the test suite proves the
+passwordless-activation path. Development supplies passwords directly (one convenience account
+per role), because convenience is the entire point there.
 
 **Everything reconciles on real drift.** Ensured by natural key — client id, scope name, role
 name, email — never by "is the table empty", and config is the source of truth for what it
@@ -207,8 +273,9 @@ auth is its first host, `server/worker` its second (architecture §3.3):
   `AddScheduledMessage<PruneOidcTokens>("0 3 * * *")` publishes the message daily and auth's own
   handler prunes expired and invalidated entries older than 30 days — comfortably past the 14-day
   refresh horizon, and `PruneAsync` itself never touches a live grant. Auth handles this itself
-  because pruning touches auth's tables; cross-app work (email, step 7) goes to the worker's
-  queue instead. Scheduling is one declarative line per schedule: the library's clock publishes
+  because pruning touches auth's tables; cross-app work goes to the worker's queue instead —
+  `SendEmail` is published there, through the EF outbox (see Account flows), and the worker
+  delivers it. Scheduling is one declarative line per schedule: the library's clock publishes
   and the handler's queue owns everything else. Cron strings are validated at boot (Cronos), and
   the semantics are deliberate — a missed tick skips, a duplicate publish is safe, because
   schedules carry idempotent maintenance work.
@@ -276,9 +343,18 @@ What auth emits today:
   `requires_two_factor`), and `auth.oauth.grants`, tagged `grant_type` and `result`. Grants are
   counted where every token response passes (OpenIddict's `ApplyTokenResponse` event), so
   protocol rejections — a password-grant attempt, a bad PKCE verifier — are counted too;
-  client-supplied grant types collapse to a closed set first. Wolverine adds its own
-  `Wolverine:auth` meter. Domain meters and activity sources follow the `MyStack.*` naming
-  convention, which the library subscribes by wildcard.
+  client-supplied grant types collapse to a closed set first. The account flows add
+  `auth.registrations` (`outcome`: `created`, `resent_confirmation`, `already_registered`,
+  `invalid_password`, `failed`), `auth.email_confirmations` (`outcome`: `confirmed`,
+  `already_confirmed`, `invalid_token`, `unknown_user`, `resent`, `resend_already_confirmed`,
+  `resend_unknown_email`), `auth.password_resets` (`stage` `requested`: `sent`, `unknown_email`,
+  `unconfirmed_email`; `stage` `completed`: `reset`, `invalid_token`, `unknown_user`,
+  `invalid_password`) and `auth.password_changes` (`outcome`: `changed`,
+  `wrong_current_password`, `invalid_new_password`) — the anti-enumeration flows' honest
+  outcomes, which the generic responses deliberately hide, so an enumeration run is a rate an
+  operator can alert on. Wolverine adds its own `Wolverine:auth` meter. Domain meters and
+  activity sources follow the `MyStack.*` naming convention, which the library subscribes by
+  wildcard.
 - **Logs** — every log line, with scopes and the formatted message.
 
 ### Request logging
@@ -308,7 +384,7 @@ be the test host.
 Two conventions with teeth:
 
 - **URL query redaction stays on for auth** — the instrumentation's default, kept deliberately.
-  Confirmation and reset tokens will travel in query strings here, so `url.query` on a span is a
+  Confirmation and reset tokens travel in query strings here, so `url.query` on a span is a
   credential leak. `api` will make the opposite call (its query strings are paging, worth seeing);
   the asymmetry is the point.
 - **`act.sub`** — when a principal carries an RFC 8693 `act` claim, enrichment middleware tags the
@@ -361,3 +437,12 @@ Recorded as they appear, resolved in the finalize pass (auth-track's final step)
   encryption credentials deliberately — a certificate from the environment, never one generated
   on boot — and startup throws without them. Deciding the source (file, store, secret manager)
   belongs with the deployment topology (architecture D12).
+- **No rate limiting on the account endpoints.** The anti-enumeration posture makes probing
+  operator-visible (the metric tags) but nothing yet makes it expensive. An IP-partitioned
+  limiter over the anonymous account pages — register, forgot, resend, and the sign-in POST —
+  belongs in the finalize pass.
+- **A timing residual on the anonymous account flows.** The response *shape* is constant, but
+  the hit path composes a token and an outbox write while the miss path only looks up a user, so
+  latency differs by existence. The queue already moved delivery off the request path; closing
+  the remaining gap (dummy work on the miss path, as the sign-in page would need too) is a
+  finalize-pass call, with the rate limiter as the practical brake.
