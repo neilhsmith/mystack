@@ -16,6 +16,15 @@ internal static class OidcExtensions
             ?? new OidcOptions();
 
         builder.Services.AddScoped<GrantMetricsHandler>();
+        builder.Services.AddScoped<BackchannelLogoutNotifier>();
+
+        // The bound on how long an unreachable client can hold up a user's sign-out: logout
+        // notifications are delivered concurrently and best-effort, and this timeout is the
+        // entire retry story (docs/auth.md records why there is no queue behind it).
+        builder.Services.AddHttpClient(
+            BackchannelLogoutNotifier.HttpClientName,
+            client => client.Timeout = TimeSpan.FromSeconds(5)
+        );
 
         builder
             .Services.AddOpenIddict()

@@ -6,9 +6,10 @@ and it is the only deployable that issues tokens.
 **What exists today is the host skeleton, telemetry, the OpenIddict server, messaging, seeding,
 and the account flows**: ASP.NET Core Identity over EF Core/Postgres, health checks, the
 security-header set, `MyStack.Observability` wired in, OpenIddict issuing tokens — authorization
-code + PKCE with refresh tokens, client credentials for machine clients, userinfo and
-introspection alongside the original four protocol endpoints, a functional sign-in page, request
-logging and the first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ,
+code + PKCE with refresh tokens, client credentials for machine clients, userinfo,
+introspection, the device flow and PAR alongside the original four protocol endpoints,
+back-channel logout propagating sign-out to every registered client, a functional sign-in page,
+request logging and the first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ,
 with the daily token-prune flowing through the broker, config-driven seeding bringing a fresh
 database to a working state before the host serves, and the account flows: register + email
 confirmation, forgot/reset password, change password + notification, every email published
@@ -46,7 +47,7 @@ wire, with the worker running so the emails actually deliver.
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
 | `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
-| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests`. What a client may *do* is fixed in code; see Seeding. |
+| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests` and `BackchannelLogoutUri`. What a client may *do* is fixed in code; see Seeding. |
 | `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
@@ -120,7 +121,7 @@ reason Identity's were.
 | Introspection | `/connect/introspection` | OpenIddict entirely |
 | Device authorization | `/connect/device` | OpenIddict entirely |
 | End-user verification | `/connect/verify` | the Verify Razor page: signed-in code entry, approve/deny |
-| End session | `/connect/endsession` | passthrough: Identity sign-out, then the validated post-logout redirect |
+| End session | `/connect/endsession` | passthrough: Identity sign-out, back-channel logout notifications, then the validated post-logout redirect |
 | Revocation | `/connect/revocation` | OpenIddict entirely |
 
 **Authorization code + PKCE with refresh tokens for humans, client credentials for machines, the
@@ -152,6 +153,34 @@ tamperable in flight, and a confidential client authenticated before any page re
 browser client is *allowed* to push; a client seeded with
 `RequirePushedAuthorizationRequests: true` is *refused* plain front-channel authorize URLs
 entirely — the opt-in meant for the production BFF once it pushes.
+
+**Sign-out propagates over the back channel** (OIDC Back-Channel Logout 1.0). Ending a session at
+`/connect/endsession` doesn't just clear auth's cookie: every registered client that declares a
+`BackchannelLogoutUri` in seed config is POSTed a **logout token** — a short-lived signed JWT with
+`iss`/`aud`/`iat`/`exp`/`jti`, the user's `sub`, the back-channel-logout `events` claim and a
+`logout+jwt` type header, and deliberately no `nonce`, which is what stops it doubling as an id
+token — as `logout_token=…`, form-encoded, server to server. A consumer validates it against the
+same discovery document and JWKS as every other token, then ends its own sessions for that
+subject; that consumer side lands with each BFF, not here. The subject comes from the live cookie,
+or from a validated `id_token_hint` when the cookie already expired — so a client-initiated
+sign-out still propagates. Deliberate shape, recorded once:
+
+- **`sub` only, no `sid`.** Auth's session store is the Identity cookie — there is no server-side
+  session table to mint a session id from — and "sign this user out everywhere" is exactly what
+  single sign-out wants. Per-session precision can be added later by minting `sid` into id
+  tokens; nothing here precludes it.
+- **Delivery is inline, concurrent and best-effort** — no queue, no retry schedule. A logout
+  token outlives its usefulness in minutes, so broker retries would mostly deliver dead tokens;
+  the unreachable-client bound is the HTTP client's 5-second timeout, deliveries run
+  concurrently so a dead client never blocks a live one (or the user's redirect), and a missed
+  notification is bounded by the consumer's own session and token lifetimes. Failures are logged
+  and counted (`auth.logout_notifications`), which is the operator's signal that a client's
+  endpoint is down.
+- **Front-channel logout is rejected, not deferred.** The front-channel spec delivers logout by
+  rendering hidden iframes in the departing user's browser: no confirmation, the browser must
+  stay on the page while they fire, and third-party cookie partitioning increasingly means the
+  iframe can't see the client's session cookie at all. Every client here is a BFF with a server
+  to receive a POST, so the fragile variant would be dead weight beside the reliable one.
 
 **Lifetimes are configuration** — the `Oidc:*` keys above, with the defaults committed in
 `appsettings.json`. Refresh tokens rotate: every refresh issues a new one, and the token endpoint
@@ -306,12 +335,14 @@ nothing, so a config knob would only create ways to be wrong.
 URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
 *which* clients exist and where they redirect; *what a client may do* is fixed in code, per
 shape: a browser client (`Public` or `Confidential`) is authorization code + PKCE + refresh with
-implicit consent — optionally PAR-required via `RequirePushedAuthorizationRequests` — a
+implicit consent — optionally PAR-required via `RequirePushedAuthorizationRequests`, optionally
+notified of sign-outs via `BackchannelLogoutUri` — a
 `Machine` client is client credentials only, a `Device` client is the device grant only, and
 there is deliberately no knob for grant types, so no configuration can reintroduce the password
 grant. Confidential and machine clients require a secret, public and device clients refuse one,
-machine and device clients refuse redirect URIs, and only a browser client may require PAR (the
-other shapes never touch the authorization endpoint); every misdeclaration throws and aborts
+machine and device clients refuse redirect URIs, and only a browser client may require PAR or
+declare a back-channel logout URI (the other shapes never touch the authorization endpoint, have
+no user session to end, and no server endpoint to notify); every misdeclaration throws and aborts
 startup — failing to boot beats booting wrong, and a silently-defaulted secret would ship in a
 public repo.
 
@@ -438,7 +469,10 @@ What auth emits today:
   `invalid_password`) and `auth.password_changes` (`outcome`: `changed`,
   `wrong_current_password`, `invalid_new_password`) — the anti-enumeration flows' honest
   outcomes, which the generic responses deliberately hide, so an enumeration run is a rate an
-  operator can alert on. Wolverine adds its own `Wolverine:auth` meter. Domain meters and
+  operator can alert on. Back-channel logout adds `auth.logout_notifications`, tagged
+  `client_id` (operator-declared seed config, still a closed set) and `outcome` (`delivered`,
+  `failed`) — the failure rate is the signal that a client's logout endpoint is down, since
+  delivery is deliberately best-effort. Wolverine adds its own `Wolverine:auth` meter. Domain meters and
   activity sources follow the `MyStack.*` naming convention, which the library subscribes by
   wildcard.
 - **Logs** — every log line, with scopes and the formatted message.

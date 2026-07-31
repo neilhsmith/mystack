@@ -28,8 +28,10 @@ every issuance, the strings opaque to auth — and the wider token surface: user
 agreeing with the id token by construction), the client-credentials grant with the seeder's
 `Machine` client shape, and introspection for confidential callers only — and the protocol
 extras: the device authorization grant (the `Device` client shape, `/connect/device`, the
-signed-in `/connect/verify` approval page) and PAR with its per-client
-`RequirePushedAuthorizationRequests` opt-in — and
+signed-in `/connect/verify` approval page), PAR with its per-client
+`RequirePushedAuthorizationRequests` opt-in, and back-channel logout — per-client
+`BackchannelLogoutUri` config and signed logout tokens POSTed to every registered client when a
+session ends — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
 spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.

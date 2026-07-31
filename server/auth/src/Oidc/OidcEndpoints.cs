@@ -220,9 +220,39 @@ internal static class OidcEndpoints
         return Results.Ok(claims);
     }
 
-    private static async Task<IResult> EndSessionAsync(SignInManager<ApplicationUser> signInManager)
+    private static async Task<IResult> EndSessionAsync(
+        HttpContext context,
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
+        BackchannelLogoutNotifier backchannelLogout
+    )
     {
+        // Whose session is ending: the live cookie's user, or — when the cookie already
+        // expired — the subject of the id_token_hint OpenIddict validated, so a client-initiated
+        // sign-out still propagates to the other apps holding their own sessions. Neither means
+        // there is nobody to notify about.
+        var cookie = await context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+        var subject = cookie.Succeeded ? userManager.GetUserId(cookie.Principal) : null;
+        if (subject is null)
+        {
+            var hint = await context.AuthenticateAsync(
+                OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
+            );
+            subject = hint.Principal?.GetClaim(Claims.Subject);
+        }
+
         await signInManager.SignOutAsync();
+
+        if (subject is not null)
+        {
+            await backchannelLogout.NotifyAsync(
+                subject,
+                new Uri(
+                    $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}",
+                    UriKind.Absolute
+                )
+            );
+        }
 
         // OpenIddict redirects to the request's post_logout_redirect_uri when it validated one;
         // RedirectUri is only the fallback for a bare sign-out.
