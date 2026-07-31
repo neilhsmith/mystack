@@ -7,12 +7,16 @@ meta {
 get {
   url: {{auth_url}}/.well-known/openid-configuration
   body: none
-  auth: inherit
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
 }
 
 script:post-response {
-  // The checkpoint: the collection's OAuth2 config just ran the code + PKCE dance, and this
-  // request carried the resulting Bearer token. Decode it and show the claims.
+  // The checkpoint: this request carried {{access_token}} — whichever sign-in exported it
+  // last. Decode it and show the claims.
   const authorization = req.getHeader('Authorization') || '';
   const jwt = authorization.replace(/^Bearer /, '');
   // Bruno's script sandbox doesn't know the base64url encoding name, so un-URL-safe and re-pad
@@ -28,7 +32,8 @@ script:post-response {
 }
 
 docs {
-  Runs the same discovery request but with the collection's OAuth2 auth attached, then decodes the
-  access token in the post-response script — check the console for the claims: `sub`, `role`,
-  `aud: api`, the granted scopes, and `exp − iat` = the 15-minute access-token lifetime.
+  Runs the discovery request carrying {{access_token}} (exported by either sign-in request), then
+  decodes it in the post-response script — check the console for the claims: `sub`, `role`,
+  `aud: api`, the granted scopes, any `perm` / `perm_deny` overrides, and `exp − iat` = the
+  15-minute access-token lifetime.
 }

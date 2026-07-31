@@ -1,0 +1,38 @@
+meta {
+  name: Refresh Token (Scripted)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{auth_url}}/connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: refresh_token
+  refresh_token: {{refresh_token}}
+  client_id: {{client_id}}
+}
+
+script:post-response {
+  if (res.status !== 200) return;
+  bru.setEnvVar('access_token', res.body.access_token);
+  if (res.body.refresh_token) bru.setEnvVar('refresh_token', res.body.refresh_token);
+
+  const decode = (part) => {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='), 'base64').toString());
+  };
+  console.log('access token claims:', JSON.stringify(decode(res.body.access_token.split('.')[1]), null, 2));
+}
+
+docs {
+  Trades {{refresh_token}} for a fresh pair. Refresh tokens rotate — the old one is dead the
+  moment this succeeds, so the script always overwrites both env vars.
+
+  Every refresh is a full re-issuance that re-reads the store: role changes and permission
+  overrides added or removed since sign-in appear in the new token, which makes this the
+  quickest way to watch perm / perm_deny move without signing in again.
+}

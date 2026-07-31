@@ -1,13 +1,17 @@
 meta {
   name: Userinfo
   type: http
-  seq: 5
+  seq: 7
 }
 
 get {
   url: {{auth_url}}/connect/userinfo
   body: none
-  auth: inherit
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
 }
 
 docs {
@@ -15,6 +19,6 @@ docs {
   `email`, `name` and `role` as granted. The answer is built from the same destination logic as
   the id token, so the two can never drift — and `perm`/`perm_deny` never appear in either.
 
-  Run "Sign In (Browser)" first. A machine token gets 401 invalid_token here: there is no user
-  behind it to describe.
+  Rides {{access_token}}, which either sign-in request exports. A machine token gets 401
+  invalid_token here: there is no user behind it to describe.
 }
