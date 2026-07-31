@@ -238,10 +238,11 @@ internal sealed partial class AuthSeeder(
         LogUserCreated(logger, seed.Email);
     }
 
-    // The two shapes a seeded client can take, both fixed in code: a browser client — public or
+    // The three shapes a seeded client can take, all fixed in code: a browser client — public or
     // confidential — gets authorization code + PKCE + refresh with implicit consent (D17 — every
     // v1 client is first-party); a machine client gets client credentials and the back-channel
-    // endpoints, nothing a browser would ever touch. There is still no grant-type knob in config.
+    // endpoints, nothing a browser would ever touch; a device client gets the device grant and
+    // nothing that assumes a browser or a secret. There is still no grant-type knob in config.
     private static OpenIddictApplicationDescriptor DescriptorFor(SeedClient client)
     {
         if (string.IsNullOrWhiteSpace(client.ClientId))
@@ -249,9 +250,12 @@ internal sealed partial class AuthSeeder(
             throw new InvalidOperationException("Every Seed:Clients entry needs a ClientId.");
         }
 
-        return client.Type == SeedClientType.Machine
-            ? MachineDescriptorFor(client)
-            : BrowserDescriptorFor(client);
+        return client.Type switch
+        {
+            SeedClientType.Machine => MachineDescriptorFor(client),
+            SeedClientType.Device => DeviceDescriptorFor(client),
+            _ => BrowserDescriptorFor(client),
+        };
     }
 
     private static OpenIddictApplicationDescriptor BrowserDescriptorFor(SeedClient client)
@@ -291,6 +295,9 @@ internal sealed partial class AuthSeeder(
             Permissions =
             {
                 Permissions.Endpoints.Authorization,
+                // PAR is *allowed* for every browser client — pushing parameters through the
+                // back channel is never worse than the URL. Requiring it is the opt-in below.
+                Permissions.Endpoints.PushedAuthorization,
                 Permissions.Endpoints.Token,
                 Permissions.Endpoints.EndSession,
                 Permissions.Endpoints.Revocation,
@@ -300,6 +307,11 @@ internal sealed partial class AuthSeeder(
             },
             Requirements = { Requirements.Features.ProofKeyForCodeExchange },
         };
+
+        if (client.RequirePushedAuthorizationRequests)
+        {
+            descriptor.Requirements.Add(Requirements.Features.PushedAuthorizationRequests);
+        }
 
         if (confidential)
         {
@@ -343,6 +355,8 @@ internal sealed partial class AuthSeeder(
             );
         }
 
+        ThrowIfRequiresParWithoutAuthorize(client, "machine");
+
         // Always confidential — the secret is the entire authentication story — and no consent
         // type: consent is a user concept, and no user ever appears in this flow.
         var descriptor = new OpenIddictApplicationDescriptor
@@ -363,6 +377,65 @@ internal sealed partial class AuthSeeder(
         AddGrantedScopes(descriptor, client);
 
         return descriptor;
+    }
+
+    private static OpenIddictApplicationDescriptor DeviceDescriptorFor(SeedClient client)
+    {
+        if (!string.IsNullOrEmpty(client.Secret))
+        {
+            throw new InvalidOperationException(
+                $"Device client '{client.ClientId}' declares a Secret, but a device-flow "
+                    + "client runs where no secret can be kept — a TV or a CLI is public by "
+                    + "nature. Remove it."
+            );
+        }
+
+        if (client.RedirectUris.Count > 0 || client.PostLogoutRedirectUris.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Device client '{client.ClientId}' declares redirect URIs, but the device "
+                    + "flow never redirects a browser back to the client. Remove them."
+            );
+        }
+
+        ThrowIfRequiresParWithoutAuthorize(client, "device");
+
+        // Implicit consent even though the verification page shows an approve button: that
+        // button is the flow's binding step (which account does this device become?), not a
+        // D17-style consent screen.
+        var descriptor = new OpenIddictApplicationDescriptor
+        {
+            ClientId = client.ClientId,
+            DisplayName = client.DisplayName ?? client.ClientId,
+            ClientType = ClientTypes.Public,
+            ConsentType = ConsentTypes.Implicit,
+            Permissions =
+            {
+                Permissions.Endpoints.DeviceAuthorization,
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.Revocation,
+                Permissions.GrantTypes.DeviceCode,
+                Permissions.GrantTypes.RefreshToken,
+            },
+        };
+
+        AddGrantedScopes(descriptor, client);
+
+        return descriptor;
+    }
+
+    private static void ThrowIfRequiresParWithoutAuthorize(SeedClient client, string shape)
+    {
+        // PAR governs the authorization endpoint, which these shapes never touch — a config
+        // that says otherwise misunderstands one of the two, so it fails loudly.
+        if (client.RequirePushedAuthorizationRequests)
+        {
+            throw new InvalidOperationException(
+                $"Client '{client.ClientId}' requires pushed authorization requests, but a "
+                    + $"{shape} client never uses the authorization endpoint. Remove the "
+                    + "requirement."
+            );
+        }
     }
 
     private static void AddGrantedScopes(

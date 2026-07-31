@@ -845,7 +845,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [x] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
 - [x] **Seeding** — one safe always-on pass, config-declared clients + accounts, advisory lock,
       seed-before-serve (§3.4)
-- [ ] **Protocol completion** — userinfo, introspection, client credentials, device flow +
+- [x] **Protocol completion** — userinfo, introspection, client credentials, device flow +
       verification page, PAR
 - [ ] **Logout notifications** — back-channel logout tokens to registered clients; front-channel
       decided, not assumed

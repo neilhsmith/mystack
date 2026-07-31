@@ -31,6 +31,14 @@ public sealed class RecordingLoggerProvider : ILoggerProvider
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter
-        ) => entries.Enqueue((category, formatter(state, exception)));
+        ) =>
+            entries.Enqueue(
+                (
+                    category,
+                    exception is null
+                        ? formatter(state, exception)
+                        : formatter(state, exception) + Environment.NewLine + exception
+                )
+            );
     }
 }

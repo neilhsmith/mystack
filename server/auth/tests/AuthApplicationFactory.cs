@@ -59,6 +59,23 @@ internal sealed class AuthApplicationFactory(
         builder.UseSetting("Seed:Clients:1:Secret", AuthAppFixture.MachineClientSecret);
         builder.UseSetting("Seed:Clients:1:Scopes:0", "api.read");
 
+        // The device-flow client — public, browserless, no redirect anywhere in its life.
+        builder.UseSetting("Seed:Clients:2:ClientId", AuthAppFixture.DeviceClientId);
+        builder.UseSetting("Seed:Clients:2:DisplayName", AuthAppFixture.DeviceClientDisplayName);
+        builder.UseSetting("Seed:Clients:2:Type", "Device");
+        builder.UseSetting("Seed:Clients:2:Scopes:0", "email");
+        builder.UseSetting("Seed:Clients:2:Scopes:1", "profile");
+        builder.UseSetting("Seed:Clients:2:Scopes:2", "roles");
+        builder.UseSetting("Seed:Clients:2:Scopes:3", "api.read");
+
+        // The PAR-required client: test-client's shape, but refused plain authorize URLs.
+        builder.UseSetting("Seed:Clients:3:ClientId", AuthAppFixture.ParClientId);
+        builder.UseSetting("Seed:Clients:3:Type", "Public");
+        builder.UseSetting("Seed:Clients:3:RequirePushedAuthorizationRequests", "true");
+        builder.UseSetting("Seed:Clients:3:RedirectUris:0", AuthAppFixture.RedirectUri);
+        builder.UseSetting("Seed:Clients:3:Scopes:0", "email");
+        builder.UseSetting("Seed:Clients:3:Scopes:1", "api.read");
+
         builder.UseSetting("Seed:Users:0:Email", AuthAppFixture.AdminEmail);
         builder.UseSetting("Seed:Users:0:Roles:0", "globaladmin");
 

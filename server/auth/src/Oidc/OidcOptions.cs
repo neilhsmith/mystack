@@ -13,4 +13,11 @@ public sealed class OidcOptions
     public TimeSpan AuthorizationCodeLifetime { get; init; } = TimeSpan.FromMinutes(5);
 
     public TimeSpan RefreshTokenLifetime { get; init; } = TimeSpan.FromDays(14);
+
+    // The cross-device window: how long a device's codes stay redeemable while the user walks to
+    // a real browser, signs in and approves. One window for both — a user code that outlives its
+    // device code (or the reverse) is only a confusing way to fail.
+    public TimeSpan DeviceCodeLifetime { get; init; } = TimeSpan.FromMinutes(15);
+
+    public TimeSpan UserCodeLifetime { get; init; } = TimeSpan.FromMinutes(15);
 }

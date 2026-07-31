@@ -24,19 +24,25 @@ internal static class OidcExtensions
             {
                 server
                     .SetAuthorizationEndpointUris("connect/authorize")
+                    .SetPushedAuthorizationEndpointUris("connect/par")
                     .SetTokenEndpointUris("connect/token")
                     .SetUserInfoEndpointUris("connect/userinfo")
                     .SetIntrospectionEndpointUris("connect/introspection")
+                    .SetDeviceAuthorizationEndpointUris("connect/device")
+                    .SetEndUserVerificationEndpointUris("connect/verify")
                     .SetEndSessionEndpointUris("connect/endsession")
                     .SetRevocationEndpointUris("connect/revocation");
 
                 // Authorization code + PKCE with refresh tokens for humans, client credentials
-                // for machines — and nothing else. No password grant, in any environment
-                // (architecture §3); PKCE is required globally rather than per client, so no
-                // future registration can quietly opt out.
+                // for machines, the device grant for clients without a browser or keyboard — and
+                // nothing else. No password grant, in any environment (architecture §3); PKCE is
+                // required globally rather than per client, so no future registration can
+                // quietly opt out. PAR is deliberately not required globally the same way:
+                // making it mandatory is a per-client requirement the seeder declares.
                 server.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
                 server.AllowRefreshTokenFlow();
                 server.AllowClientCredentialsFlow();
+                server.AllowDeviceAuthorizationFlow();
 
                 server.RegisterScopes(
                     Scopes.Email,
@@ -50,7 +56,9 @@ internal static class OidcExtensions
                     .SetAccessTokenLifetime(lifetimes.AccessTokenLifetime)
                     .SetIdentityTokenLifetime(lifetimes.IdentityTokenLifetime)
                     .SetAuthorizationCodeLifetime(lifetimes.AuthorizationCodeLifetime)
-                    .SetRefreshTokenLifetime(lifetimes.RefreshTokenLifetime);
+                    .SetRefreshTokenLifetime(lifetimes.RefreshTokenLifetime)
+                    .SetDeviceCodeLifetime(lifetimes.DeviceCodeLifetime)
+                    .SetUserCodeLifetime(lifetimes.UserCodeLifetime);
 
                 // `server/api` validates access tokens as plain JWTs against the discovery
                 // document; encrypted tokens would force it onto auth's key material instead.
@@ -73,6 +81,7 @@ internal static class OidcExtensions
                     .EnableAuthorizationEndpointPassthrough()
                     .EnableTokenEndpointPassthrough()
                     .EnableUserInfoEndpointPassthrough()
+                    .EnableEndUserVerificationEndpointPassthrough()
                     .EnableEndSessionEndpointPassthrough();
 
                 if (

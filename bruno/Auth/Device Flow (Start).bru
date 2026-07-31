@@ -1,0 +1,37 @@
+meta {
+  name: Device Flow (Start)
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{auth_url}}/connect/device
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  client_id: {{device_client_id}}
+  scope: {{signin_scope}}
+}
+
+script:post-response {
+  if (res.status !== 200) return;
+  bru.setEnvVar('device_code', res.body.device_code);
+  console.log('you are the device now. on your "other" device (this browser):');
+  console.log('  open ' + res.body.verification_uri_complete);
+  console.log('  (or go to ' + res.body.verification_uri + ' and type ' + res.body.user_code + ')');
+  console.log('sign in, approve, then send "Device Flow (Poll)" to collect the tokens.');
+  console.log('the code expires in ' + res.body.expires_in + 's; poll no faster than every ' + (res.body.interval || 5) + 's.');
+}
+
+docs {
+  The device flow's first half (RFC 8628): this request plays the browserless device — a TV, a
+  CLI, anything that can't show a sign-in page. The seeded public `dev-device` client asks to be
+  authorized and gets back a `device_code` (kept here, in {{device_code}}) plus a short
+  `user_code` for a human.
+
+  Open the printed verification link in a real browser, sign in as any seeded user, approve —
+  then "Device Flow (Poll)" turns the device_code into that user's tokens. Until you approve,
+  the poll answers `authorization_pending`, which is the protocol working, not an error.
+}

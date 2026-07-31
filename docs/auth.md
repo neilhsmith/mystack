@@ -46,12 +46,14 @@ wire, with the worker running so the emails actually deliver.
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
 | `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
-| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential` + secret, redirect URIs, scopes. What a client may *do* is fixed in code; see Seeding. |
+| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests`. What a client may *do* is fixed in code; see Seeding. |
 | `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
 | `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
 | `Oidc:RefreshTokenLifetime` | `14.00:00:00` | Absolute horizon; the token itself rotates on every use. |
+| `Oidc:DeviceCodeLifetime` | `00:15:00` | The device flow's cross-device window — how long the codes stay redeemable while the user walks to a browser. |
+| `Oidc:UserCodeLifetime` | `00:15:00` | Same window as the device code on purpose: one of them outliving the other is only a confusing way to fail. |
 | `ConnectionStrings:MessageBroker` | none | Required, same no-fallback rule as the database: failing to boot beats silently dropping messages. |
 | `Messaging:RetryCooldownsInSeconds` | `[1, 5, 30]` | Seconds between redelivery attempts after a handler throws, one entry per retry; past the last one the message dead-letters. Tests set `[0]`. |
 | `Account:PublicBaseUrl` | none | Required, validated at boot as an absolute http(s) URL. Emailed confirm/reset links are built from it — never from the request's `Host` header, which is client-writable and would let a forged forgot-password request steer a victim's real reset link to an attacker's domain. |
@@ -112,19 +114,44 @@ reason Identity's were.
 | --- | --- | --- |
 | Discovery + JWKS | `/.well-known/openid-configuration` | OpenIddict entirely |
 | Authorization | `/connect/authorize` | passthrough: cookie check, implicit-consent check, principal |
+| Pushed authorization | `/connect/par` | OpenIddict entirely |
 | Token | `/connect/token` | passthrough: user re-validated against the store, claims rebuilt; client principal for machines |
 | Userinfo | `/connect/userinfo` | passthrough: scope-gated claims through the same destination logic |
 | Introspection | `/connect/introspection` | OpenIddict entirely |
+| Device authorization | `/connect/device` | OpenIddict entirely |
+| End-user verification | `/connect/verify` | the Verify Razor page: signed-in code entry, approve/deny |
 | End session | `/connect/endsession` | passthrough: Identity sign-out, then the validated post-logout redirect |
 | Revocation | `/connect/revocation` | OpenIddict entirely |
 
-**Authorization code + PKCE with refresh tokens for humans, client credentials for machines —
-and no other flow.** PKCE is required globally rather than per client, so no future registration
-can quietly opt out. A machine client is confidential by construction; its token carries the
-client's own identity — `sub` is the client id — and its granted scopes, and never a user claim,
-an id token or a refresh token. **There is no password grant, in any environment** —
-`grant_types_supported` in the discovery document is exactly
-`[authorization_code, refresh_token, client_credentials]`, and the test suite asserts it.
+**Authorization code + PKCE with refresh tokens for humans, client credentials for machines, the
+device grant for clients without a browser — and no other flow.** PKCE is required globally
+rather than per client, so no future registration can quietly opt out. A machine client is
+confidential by construction; its token carries the client's own identity — `sub` is the client
+id — and its granted scopes, and never a user claim, an id token or a refresh token. **There is
+no password grant, in any environment** — `grant_types_supported` in the discovery document is
+exactly `[authorization_code, refresh_token, client_credentials,
+urn:ietf:params:oauth:grant-type:device_code]`, and the test suite asserts it.
+
+**The device flow is the browserless client's front door** (RFC 8628). The device POSTs its
+client id to `/connect/device` and gets a `device_code` to poll the token endpoint with, plus a
+short `user_code` and a verification link for a human. The user opens `/connect/verify` on a
+real browser — signing in first; approval binds the device to whoever approves, so the page
+demands a user before rendering anything — enters the code (or arrives with it via
+`verification_uri_complete`), sees which client is asking and for what, and approves or denies.
+Approval runs the same principal funnel as every sign-in, so the device's tokens carry the
+user's roles and permission overrides like any other; denial turns the device's next poll into
+`access_denied`. Both codes live for `Oidc:UserCodeLifetime` / `Oidc:DeviceCodeLifetime`
+(15 minutes each) and are single-use. The verification page is functional now and designed in
+the design + finalize pass, like the sign-in page.
+
+**PAR moves authorize parameters off the URL** (RFC 9126). A client may POST its authorization
+request — scope, redirect, PKCE challenge, state — to `/connect/par` over the back channel and
+send the browser to `/connect/authorize` with nothing but its client id and the one-time,
+short-lived `request_uri` handle it got back: nothing sensitive in history or logs, nothing
+tamperable in flight, and a confidential client authenticated before any page renders. Every
+browser client is *allowed* to push; a client seeded with
+`RequirePushedAuthorizationRequests: true` is *refused* plain front-channel authorize URLs
+entirely — the opt-in meant for the production BFF once it pushes.
 
 **Lifetimes are configuration** — the `Oidc:*` keys above, with the defaults committed in
 `appsettings.json`. Refresh tokens rotate: every refresh issues a new one, and the token endpoint
@@ -163,11 +190,13 @@ hardening items).
 implicit consent; the authorization endpoint refuses a client registered any other way, so a
 future third-party client forces the decision to be remade rather than silently inheriting it.
 
-**Clients come from seed configuration** (see Seeding): development declares `web-bff`, `bruno`
-and the `dev-machine` machine client in `appsettings.Development.json`, the test suite declares
-its clients the same way, and every one of them takes one of the two shapes the seeder can
-produce — browser (authorization code + PKCE + refresh, implicit consent, public or
-confidential) or machine (client credentials only) — no exceptions.
+**Clients come from seed configuration** (see Seeding): development declares `web-bff`, `bruno`,
+the `dev-machine` machine client and the `dev-device` device client in
+`appsettings.Development.json`, the test suite declares its clients the same way, and every one
+of them takes one of the three shapes the seeder can produce — browser (authorization code +
+PKCE + refresh, implicit consent, public or confidential, optionally PAR-required) or machine
+(client credentials only) or device (the device grant only: public, no secret, no redirect
+URIs) — no exceptions.
 
 ## Permission overrides
 
@@ -277,11 +306,14 @@ nothing, so a config knob would only create ways to be wrong.
 URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
 *which* clients exist and where they redirect; *what a client may do* is fixed in code, per
 shape: a browser client (`Public` or `Confidential`) is authorization code + PKCE + refresh with
-implicit consent, a `Machine` client is client credentials only, and there is deliberately no
-knob for grant types, so no configuration can reintroduce the password grant. Confidential and
-machine clients require a secret, public clients refuse one, and machine clients refuse redirect
-URIs; missing required values throw and abort startup — failing to boot beats booting wrong, and
-a silently-defaulted secret would ship in a public repo.
+implicit consent — optionally PAR-required via `RequirePushedAuthorizationRequests` — a
+`Machine` client is client credentials only, a `Device` client is the device grant only, and
+there is deliberately no knob for grant types, so no configuration can reintroduce the password
+grant. Confidential and machine clients require a secret, public and device clients refuse one,
+machine and device clients refuse redirect URIs, and only a browser client may require PAR (the
+other shapes never touch the authorization endpoint); every misdeclaration throws and aborts
+startup — failing to boot beats booting wrong, and a silently-defaulted secret would ship in a
+public repo.
 
 **Seeding guarantees an administrator.** At least one declared user must carry the `globaladmin`
 role, or startup throws — the deliberate opt-out of seeded accounts is the switch, never a config

@@ -20,6 +20,7 @@ internal sealed class GrantMetricsHandler(AuthMetrics metrics)
             GrantTypes.AuthorizationCode => GrantTypes.AuthorizationCode,
             GrantTypes.RefreshToken => GrantTypes.RefreshToken,
             GrantTypes.ClientCredentials => GrantTypes.ClientCredentials,
+            GrantTypes.DeviceCode => GrantTypes.DeviceCode,
             null or "" => "none",
             _ => "unsupported",
         };
