@@ -27,8 +27,8 @@ grant/deny rows with optional expiry, minted into `perm`/`perm_deny` access-toke
 every issuance, the strings opaque to auth — and the wider token surface: userinfo (scope-gated,
 agreeing with the id token by construction), the client-credentials grant with the seeder's
 `Machine` client shape, and introspection for confidential callers only — and
-`server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`) auth
-mints and every resource server will read.
+`server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
+spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
@@ -47,11 +47,12 @@ The two ecosystems share no code. The only contract between them is the OpenAPI 
 `server/api` exports. Wanting to share anything else is a design smell to raise, not to solve.
 
 A `server/shared/` library is for what's genuinely shared and low-churn: infrastructure every host
-wires the same way, and **wire vocabulary** — names every app must spell identically (role names,
-claim types, message contracts). Behavior, policies and DTOs stay local. Four qualify
-(`MyStack.Messaging`, `MyStack.Email`, `MyStack.Observability`, `MyStack.Contracts`);
-everything else starts duplicated. Scopes are per-resource vocabulary and deliberately not in
-Contracts.
+wires the same way, and **wire vocabulary** — names spelled in more than one app's code (role
+names, claim types, scope names, message contracts), one directory per topic in
+`MyStack.Contracts`. Behavior, policies and DTOs stay local. Four qualify (`MyStack.Messaging`,
+`MyStack.Email`, `MyStack.Observability`, `MyStack.Contracts`); everything else starts
+duplicated. Permission strings stay out of Contracts: auth handles them as opaque data, and only
+`server/api` names them.
 
 ## Commands
 

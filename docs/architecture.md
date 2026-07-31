@@ -98,7 +98,7 @@ mystack/
 │  │  ├─ src/                       # MyStack.Worker.csproj — the consuming host
 │  │  └─ tests/                     # MyStack.Worker.Tests.csproj
 │  ├─ shared/                       # .NET libraries shared across the hosts
-│  │  ├─ MyStack.Contracts/         # wire vocabulary, one directory per topic (Auth/ today)
+│  │  ├─ MyStack.Contracts/         # wire vocabulary, one directory per topic (Auth/, Api/)
 │  │  ├─ MyStack.Messaging/         # Wolverine + RabbitMQ conventions, durability, test seam
 │  │  ├─ MyStack.Email/             # IEmailSender + SMTP, message shape, renderers
 │  │  └─ MyStack.Observability/
@@ -140,12 +140,15 @@ version in your head.
   was, and the move later is pure churn. Recorded as a knowing exception, not an oversight.
 - **`MyStack.Observability`** — the primitives both apps need to look the same in a trace.
 - **`MyStack.Contracts`** — the wire vocabulary, one assembly with a directory per topic rather
-  than a project per topic. `Auth/` today: `AuthRoles` (auth seeds and mints them; every
-  resource server keys its role→permission map off the same names) and `AuthClaims`
-  (`perm`/`perm_deny`, the inputs to §3.1's arithmetic). Scopes are deliberately excluded as
-  per-resource vocabulary — `api.read` belongs to `server/api`, a future `billing.read` to
-  billing — so each resource declares its own and auth keeps its registration copy: two
-  spellings per resource, never N.
+  than a project per topic. The admission test: **the name is spelled in more than one app's
+  code.** `Auth/` carries `AuthRoles` (auth seeds and mints them; every resource server keys its
+  role→permission map off the same names) and `AuthClaims` (`perm`/`perm_deny`, the inputs to
+  §3.1's arithmetic). `Api/` carries `ApiScopes` (auth registers, seeds and mints them with the
+  `api` audience; `server/api`'s endpoint policies and JWT validation enforce them) — a future
+  resource server adds its own directory, keeping vocabulary per-resource while spelled once.
+  Permission strings are deliberately absent: they fail the test — auth handles them as opaque
+  data minted from rows, and only `server/api`'s code names them, so the catalog stays api's
+  alone (§3.1).
 
 Anything else starts duplicated and gets extracted when the duplication actually hurts.
 
@@ -878,8 +881,8 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       shape, the renderer seam, the `email.sends` counter; auth's account flows render and
       publish the emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
-- [x] **`MyStack.Contracts`** — the wire vocabulary: `AuthRoles` + `AuthClaims`, one spelling
-      for auth and every resource server (§3.1)
+- [x] **`MyStack.Contracts`** — the wire vocabulary: `Auth/` (`AuthRoles` + `AuthClaims`) and
+      `Api/` (`ApiScopes`), one spelling for every app that speaks the name (§3.1)
 
 ### apps/web
 

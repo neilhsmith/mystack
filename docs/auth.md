@@ -267,11 +267,11 @@ Architecture §3.4's model, in full: one always-on-by-default `Database:Seed` sw
 pass in `AuthSeeder`. What makes always-on safe is that every account is config-declared — no
 environment receives anything it didn't declare — and writes happen only on real drift.
 
-**Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user` —
-declared in `server/shared/MyStack.Contracts`, the one spelling auth and every resource
-server share) and the API scopes (`api.read`, `api.write`, resource `api`). These are fixed in
-code — a role that exists as a row but not in the API's permission map grants nothing, so a
-config knob would only create ways to be wrong.
+**Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user`) and
+the API scopes (`ApiScopes`: `api.read`, `api.write`, resource `api`) — both declared in
+`server/shared/MyStack.Contracts`, the one spelling auth and every resource server share. These
+are fixed in code — a role that exists as a row but not in the API's permission map grants
+nothing, so a config knob would only create ways to be wrong.
 
 **Config-declared:** the OIDC clients and the accounts (`Seed:Clients`, `Seed:Users`) — redirect
 URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
