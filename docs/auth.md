@@ -574,7 +574,8 @@ framework default. Kestrel's `Server` header is suppressed.
 
 ## Production hardening — open items
 
-Recorded as they appear, resolved in the finalize pass (auth-track's final step).
+Recorded as they appear, resolved in the auth-track's closing steps — the account-surface guards
+(step 14) or deploy prep (step 16).
 
 - **Forwarded headers are not configured.** Behind a TLS-terminating proxy `Request.Scheme` will be
   `http`, which OpenIddict's discovery document and redirect URI validation both care about — and
@@ -588,10 +589,11 @@ Recorded as they appear, resolved in the finalize pass (auth-track's final step)
   belongs with the deployment topology (architecture D12).
 - **No rate limiting on the account endpoints.** The anti-enumeration posture makes probing
   operator-visible (the metric tags) but nothing yet makes it expensive. An IP-partitioned
-  limiter over the anonymous account pages — register, forgot, resend, and the sign-in POST —
-  belongs in the finalize pass.
+  limiter over the anonymous account pages — register, forgot, resend, the sign-in POST — plus
+  `/change-password` and `/connect/verify` lands in the account-surface guards (auth-track 14).
 - **A timing residual on the anonymous account flows.** The response *shape* is constant, but
   the hit path composes a token and an outbox write while the miss path only looks up a user, so
   latency differs by existence. The queue already moved delivery off the request path; closing
-  the remaining gap (dummy work on the miss path, as the sign-in page would need too) is a
-  finalize-pass call, with the rate limiter as the practical brake.
+  the remaining gap (dummy work on the miss path, and a dummy hash on the sign-in page's
+  unknown-email path) lands in the account-surface guards (auth-track 14), with the rate limiter
+  as the practical brake.
