@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using MyStack.Auth.Data;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -11,15 +12,41 @@ internal static class TokenPrincipals
 {
     /// <summary>
     /// The principal OpenIddict serializes into tokens: Identity's claims for the user, the
-    /// granted scopes, and a destination per claim deciding which token carries it.
+    /// permission overrides live at this instant, the granted scopes, and a destination per
+    /// claim deciding which token carries it.
     /// </summary>
     public static async Task<ClaimsPrincipal> CreateAsync(
         SignInManager<ApplicationUser> signInManager,
+        AuthDbContext database,
         ApplicationUser user,
         ImmutableArray<string> scopes
     )
     {
         var principal = await signInManager.CreateUserPrincipalAsync(user);
+
+        // Read fresh on every issuance — refresh included — so removing an override takes effect
+        // on the next token (§3.1's revocation-latency bound) and an expired row silently stops
+        // minting. The strings go in verbatim: auth never interprets a permission.
+        var now = DateTimeOffset.UtcNow;
+        var overrides = await database
+            .PermissionOverrides.Where(row =>
+                row.UserId == user.Id && (row.ExpiresAt == null || row.ExpiresAt > now)
+            )
+            .Select(row => new { row.Kind, row.Permission })
+            .ToListAsync();
+
+        var identity = (ClaimsIdentity)principal.Identity!;
+        foreach (var entry in overrides)
+        {
+            identity.AddClaim(
+                new Claim(
+                    entry.Kind == PermissionOverrideKind.Deny
+                        ? AuthClaims.PermissionDeny
+                        : AuthClaims.Permission,
+                    entry.Permission
+                )
+            );
+        }
 
         principal.SetScopes(scopes);
 

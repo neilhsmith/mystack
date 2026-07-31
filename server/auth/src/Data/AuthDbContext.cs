@@ -18,6 +18,9 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
     // valid across restarts and replicas.
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
+    // Per-user permission overrides (architecture §3.1), minted into tokens by TokenPrincipals.
+    public DbSet<PermissionOverride> PermissionOverrides => Set<PermissionOverride>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -45,5 +48,22 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
         // value generator or read one back from the database.
         builder.Entity<ApplicationUser>().Property(user => user.Id).ValueGeneratedNever();
         builder.Entity<ApplicationRole>().Property(role => role.Id).ValueGeneratedNever();
+
+        builder.Entity<PermissionOverride>(entity =>
+        {
+            entity.Property(row => row.Id).ValueGeneratedNever();
+            entity.Property(row => row.Permission).HasMaxLength(128);
+            // Stored as text so a row reads as what it is without decoding an integer.
+            entity.Property(row => row.Kind).HasConversion<string>().HasMaxLength(16);
+            // One row per (user, permission): a simultaneous grant and deny is a contradiction
+            // the schema refuses rather than an arithmetic the API resolves. The index doubles
+            // as the minting lookup's path.
+            entity.HasIndex(row => new { row.UserId, row.Permission }).IsUnique();
+            entity
+                .HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(row => row.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 }

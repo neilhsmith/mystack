@@ -329,3 +329,9 @@ compose profile rather than running always-on.
 - **Token lifetimes — resolved in step 4: 15 minutes for the access token**, committed as
   configuration (`Oidc:*` in `appsettings.json`, documented in auth.md) rather than prose:
   identity token 15 minutes, authorization code 5, refresh token 14 days with rotation.
+- **Revisit the password-grant ban for local tooling.** The ban is absolute today (plan §3, step
+  4's callout, CLAUDE.md), so Bruno signs in through the real browser window — faithful to the
+  protocol, but clumsier than the old project's sign-in-with-credentials request. Before auth
+  closes, decide deliberately whether that stays the answer or whether some development-only
+  concession is acceptable, and record the reasoning either way rather than leaving the friction
+  unexamined.
