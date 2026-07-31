@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../shared/MyStack.Contracts/src/MyStack.Contracts.csproj" />
     <ProjectReference Include="../../shared/MyStack.Email/src/MyStack.Email.csproj" />
     <ProjectReference Include="../../shared/MyStack.Messaging/src/MyStack.Messaging.csproj" />
     <ProjectReference Include="../../shared/MyStack.Observability/src/MyStack.Observability.csproj" />

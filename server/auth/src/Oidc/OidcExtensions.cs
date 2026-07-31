@@ -1,4 +1,5 @@
 using MyStack.Auth.Data;
+using MyStack.Contracts.Api;
 using OpenIddict.Server;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 

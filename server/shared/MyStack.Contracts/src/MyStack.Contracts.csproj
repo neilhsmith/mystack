@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The wire vocabulary the servers share — names every app must spell identically, one
+       directory per topic. Constants only, deliberately: behavior, policies and DTOs stay
+       local to each app. -->
+</Project>

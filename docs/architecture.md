@@ -98,6 +98,7 @@ mystack/
 │  │  ├─ src/                       # MyStack.Worker.csproj — the consuming host
 │  │  └─ tests/                     # MyStack.Worker.Tests.csproj
 │  ├─ shared/                       # .NET libraries shared across the hosts
+│  │  ├─ MyStack.Contracts/         # wire vocabulary, one directory per topic (Auth/, Api/)
 │  │  ├─ MyStack.Messaging/         # Wolverine + RabbitMQ conventions, durability, test seam
 │  │  ├─ MyStack.Email/             # IEmailSender + SMTP, message shape, renderers
 │  │  └─ MyStack.Observability/
@@ -121,11 +122,15 @@ mystack/
 └─ pnpm-workspace.yaml
 ```
 
-**When does something become a `server/shared/` library?** All three must hold: it is genuinely
-identical in both apps, it is low-churn, and it carries no domain or feature knowledge. Duplicating
-twenty lines is cheaper than a shared library you have to version in your head.
+**When does something become a `server/shared/` library?** It is genuinely used identically by
+more than one server app, it is low-churn, and it carries no behavior a single app should own.
+**Wire vocabulary qualifies; behavior doesn't.** Names both sides of a token or queue must spell
+identically — role names, claim types, message contracts — are contracts, and duplicating a
+contract into every consumer is the smell, not the extraction. Logic, policies and DTOs stay
+local: duplicating twenty lines of *behavior* is still cheaper than a shared library you have to
+version in your head.
 
-**Exactly three qualify, and the list is closed** until something new earns its way on:
+**Four qualify**, and the list stays closed until something new earns its way on:
 
 - **`MyStack.Messaging`** — messaging is stack-wide infrastructure by definition: every host speaks
   to the same broker with the same durability, retry and telemetry conventions. `auth` consumes it
@@ -134,6 +139,16 @@ twenty lines is cheaper than a shared library you have to version in your head.
   consumer, deliberately. Email is not an identity concern; putting it inside `auth` would say it
   was, and the move later is pure churn. Recorded as a knowing exception, not an oversight.
 - **`MyStack.Observability`** — the primitives both apps need to look the same in a trace.
+- **`MyStack.Contracts`** — the wire vocabulary, one assembly with a directory per topic rather
+  than a project per topic. The admission test: **the name is spelled in more than one app's
+  code.** `Auth/` carries `AuthRoles` (auth seeds and mints them; every resource server keys its
+  role→permission map off the same names) and `AuthClaims` (`perm`/`perm_deny`, the inputs to
+  §3.1's arithmetic). `Api/` carries `ApiScopes` (auth registers, seeds and mints them with the
+  `api` audience; `server/api`'s endpoint policies and JWT validation enforce them) — a future
+  resource server adds its own directory, keeping vocabulary per-resource while spelled once.
+  Permission strings are deliberately absent: they fail the test — auth handles them as opaque
+  data minted from rows, and only `server/api`'s code names them, so the catalog stays api's
+  alone (§3.1).
 
 Anything else starts duplicated and gets extracted when the duplication actually hurts.
 
@@ -674,7 +689,7 @@ booting wrong.
 ensure/reconcile helpers — are roughly eighty identical, low-churn, domain-free lines, so they do
 pass §2's three-part test. They are still **written twice**, kept deliberately structurally
 identical, so that extraction is mechanical if a third consumer ever appears. This is the most
-likely fourth `server/shared/` library. It is not one yet.
+likely next `server/shared/` library. It is not one yet.
 
 ---
 
@@ -866,6 +881,8 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       shape, the renderer seam, the `email.sends` counter; auth's account flows render and
       publish the emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
+- [x] **`MyStack.Contracts`** — the wire vocabulary: `Auth/` (`AuthRoles` + `AuthClaims`) and
+      `Api/` (`ApiScopes`), one spelling for every app that speaks the name (§3.1)
 
 ### apps/web
 
