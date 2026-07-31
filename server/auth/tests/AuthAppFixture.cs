@@ -35,6 +35,11 @@ public sealed class AuthAppFixture : IAsyncLifetime
     // deliveries to the reachable ones.
     public const string UnreachableClientId = "test-unreachable";
 
+    // The seeded confidential browser client — the future BFF's exact shape: a secret presented
+    // at the token endpoint, and the introspection permission that comes with being confidential.
+    public const string ConfidentialClientId = "test-confidential";
+    public const string ConfidentialClientSecret = "a secret the test bff keeps server-side";
+
     // The images compose runs, so the migration and the broker topology are proven against what
     // the stack actually uses rather than whatever `latest` happens to be.
     private readonly PostgreSqlContainer database = new PostgreSqlBuilder(
@@ -144,6 +149,12 @@ public sealed class AuthAppFixture : IAsyncLifetime
                 ["Seed:Clients:4:Type"] = "Public",
                 ["Seed:Clients:4:RedirectUris:0"] = RedirectUri,
                 ["Seed:Clients:4:BackchannelLogoutUri"] = "http://127.0.0.1:9/backchannel-logout",
+                ["Seed:Clients:5:ClientId"] = ConfidentialClientId,
+                ["Seed:Clients:5:Type"] = "Confidential",
+                ["Seed:Clients:5:Secret"] = ConfidentialClientSecret,
+                ["Seed:Clients:5:RedirectUris:0"] = RedirectUri,
+                ["Seed:Clients:5:Scopes:0"] = "email",
+                ["Seed:Clients:5:Scopes:1"] = "api.read",
             }
         );
 

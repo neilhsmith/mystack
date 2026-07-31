@@ -36,7 +36,7 @@ public sealed class UserInfoTests(AuthAppFixture app)
         userinfo
             .EnumerateObject()
             .Select(property => property.Name)
-            .ShouldBe(["sub", "name", "email", "role"], ignoreOrder: true);
+            .ShouldBe(["sub", "name", "email", "role", "auth_time"], ignoreOrder: true);
         userinfo.GetProperty("sub").GetString().ShouldBe(user.Id.ToString());
         userinfo.GetProperty("email").GetString().ShouldBe(email);
         userinfo.GetProperty("name").GetString().ShouldBe(email);
@@ -51,6 +51,11 @@ public sealed class UserInfoTests(AuthAppFixture app)
                 .GetString()
                 .ShouldBe(userinfo.GetProperty(name).GetString(), $"claim '{name}'");
         }
+
+        identityClaims
+            .GetProperty("auth_time")
+            .GetInt64()
+            .ShouldBe(userinfo.GetProperty("auth_time").GetInt64(), "claim 'auth_time'");
 
         identityClaims.TryGetProperty("perm", out _).ShouldBeFalse();
     }
@@ -73,12 +78,12 @@ public sealed class UserInfoTests(AuthAppFixture app)
         );
         status.ShouldBe(HttpStatusCode.OK);
 
-        // profile and roles were not granted, so name and role do not exist here — not even
-        // as empty values. The role is in the access token regardless; userinfo is gated.
+        // profile and roles were not granted, so name and role do not exist here — not even as
+        // empty values — and the same scope gate keeps them out of the access token too.
         userinfo
             .EnumerateObject()
             .Select(property => property.Name)
-            .ShouldBe(["sub", "email"], ignoreOrder: true);
+            .ShouldBe(["sub", "email", "auth_time"], ignoreOrder: true);
         userinfo.GetProperty("sub").GetString().ShouldBe(user.Id.ToString());
         userinfo.GetProperty("email").GetString().ShouldBe(email);
     }

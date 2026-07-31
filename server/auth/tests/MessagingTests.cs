@@ -14,10 +14,11 @@ public sealed class MessagingTests(AuthAppFixture app)
     // The real maintenance flow, end to end: the message rides the broker to auth's own queue
     // and its handler prunes — proven by the side effect, not by asserting Wolverine works.
     [Fact]
-    public async Task PublishedPrune_RemovesLongExpiredTokens()
+    public async Task PublishedPrune_RemovesLongExpiredTokens_AndOnlyThose()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var subject = $"prune-{Guid.NewGuid():N}";
+        var survivorSubject = $"prune-survivor-{Guid.NewGuid():N}";
 
         await using (var scope = app.Services.CreateAsyncScope())
         {
@@ -30,6 +31,20 @@ public sealed class MessagingTests(AuthAppFixture app)
                     Type = TokenTypeHints.AccessToken,
                     CreationDate = DateTimeOffset.UtcNow.AddDays(-40),
                     ExpirationDate = DateTimeOffset.UtcNow.AddDays(-39),
+                },
+                cancellationToken
+            );
+
+            // The survivor: live and recent. Without it, a handler that deleted *everything*
+            // would pass the assert below just the same.
+            await tokens.CreateAsync(
+                new OpenIddictTokenDescriptor
+                {
+                    Subject = survivorSubject,
+                    Status = Statuses.Valid,
+                    Type = TokenTypeHints.AccessToken,
+                    CreationDate = DateTimeOffset.UtcNow,
+                    ExpirationDate = DateTimeOffset.UtcNow.AddHours(1),
                 },
                 cancellationToken
             );
@@ -46,6 +61,8 @@ public sealed class MessagingTests(AuthAppFixture app)
             "the published prune should remove the long-expired token",
             cancellationToken
         );
+
+        (await CountTokensAsync(survivorSubject, cancellationToken)).ShouldBe(1);
     }
 
     // The schedule itself: declared once in Program, enumerable here — the clock loop belongs to

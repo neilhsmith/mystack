@@ -55,6 +55,17 @@ public sealed class ChangePasswordModel(
             return Challenge();
         }
 
+        // This form verifies the current password, which makes it a guessing surface for anyone
+        // holding a hijacked cookie — ChangePasswordAsync never touches the lockout counters on
+        // its own, so the same lockout that guards the sign-in page is enforced by hand here.
+        // The honest message is fine: the caller is already this account's session.
+        if (await users.IsLockedOutAsync(user))
+        {
+            ModelState.AddModelError(string.Empty, LockedOutMessage);
+            metrics.PasswordChange("locked_out");
+            return Page();
+        }
+
         // One transaction: the new hash, the revoked grants and the notification email commit
         // together (the EF outbox, architecture §3.3).
         await using var transaction = await outbox.DbContext.Database.BeginTransactionAsync(
@@ -64,19 +75,29 @@ public sealed class ChangePasswordModel(
         var result = await users.ChangePasswordAsync(user, CurrentPassword!, NewPassword!);
         if (!result.Succeeded)
         {
+            var mismatch = result.Errors.Any(error =>
+                error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)
+            );
+            if (mismatch)
+            {
+                // The failure count must persist while the transaction — which only ever
+                // commits a successful change — rolls back, so end it first.
+                await transaction.RollbackAsync(cancellationToken);
+                await users.AccessFailedAsync(user);
+            }
+
             foreach (var error in result.Errors)
             {
                 ModelState.AddModelError(string.Empty, error.Description);
             }
 
-            metrics.PasswordChange(
-                result.Errors.Any(error =>
-                    error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)
-                )
-                    ? "wrong_current_password"
-                    : "invalid_new_password"
-            );
+            metrics.PasswordChange(mismatch ? "wrong_current_password" : "invalid_new_password");
             return Page();
+        }
+
+        if (user.AccessFailedCount > 0)
+        {
+            await users.ResetAccessFailedCountAsync(user);
         }
 
         await revocation.RevokeAllAsync(user.Id.ToString(), cancellationToken);
@@ -92,4 +113,7 @@ public sealed class ChangePasswordModel(
         Changed = true;
         return Page();
     }
+
+    private const string LockedOutMessage =
+        "Too many incorrect attempts. Try again in a few minutes.";
 }

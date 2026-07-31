@@ -113,6 +113,60 @@ public sealed class IntrospectionTests(AuthAppFixture app)
         body.GetProperty("error").GetString().ShouldBe("unauthorized_client");
     }
 
+    // The future BFF's exact shape, end to end: a confidential browser client completes the
+    // code flow presenting its secret at the token endpoint, then introspects the user token it
+    // was issued — liveness without holding auth's key material.
+    [Fact]
+    public async Task ConfidentialClient_CompletesTheCodeFlow_AndIntrospectsItsOwnToken()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"confidential-{Guid.NewGuid():N}@example.test";
+        var user = await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+        var signIn = await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            cancellationToken: cancellationToken
+        );
+        signIn.StatusCode.ShouldBe(HttpStatusCode.Found);
+
+        var (verifier, challenge) = OAuth.CreatePkcePair();
+        var code = await OAuth.AuthorizeAsync(
+            client,
+            challenge,
+            "openid email api.read",
+            cancellationToken,
+            AuthAppFixture.ConfidentialClientId
+        );
+
+        var tokens = await OAuth.ExchangeAsync(
+            client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = code,
+                ["redirect_uri"] = AuthAppFixture.RedirectUri,
+                ["client_id"] = AuthAppFixture.ConfidentialClientId,
+                ["client_secret"] = AuthAppFixture.ConfidentialClientSecret,
+                ["code_verifier"] = verifier,
+            },
+            cancellationToken: cancellationToken
+        );
+
+        var body = await IntrospectAsync(
+            tokens.GetProperty("access_token").GetString()!,
+            AuthAppFixture.ConfidentialClientId,
+            AuthAppFixture.ConfidentialClientSecret,
+            cancellationToken: cancellationToken
+        );
+
+        body.GetProperty("active").GetBoolean().ShouldBeTrue();
+        body.GetProperty("sub").GetString().ShouldBe(user.Id.ToString());
+        body.GetProperty("client_id").GetString().ShouldBe(AuthAppFixture.ConfidentialClientId);
+    }
+
     private async Task<string> MachineTokenAsync(CancellationToken cancellationToken)
     {
         var body = await OAuth.ExchangeAsync(

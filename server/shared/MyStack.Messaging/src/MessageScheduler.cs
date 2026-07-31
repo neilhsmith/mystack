@@ -13,7 +13,7 @@ namespace MyStack.Messaging;
 /// carry maintenance-style work whose handlers are idempotent, and the §4 trigger for a
 /// coordinated scheduler is a schedule where a missed or duplicated run actually costs something.
 /// </summary>
-internal sealed class MessageScheduler(
+internal sealed partial class MessageScheduler(
     IEnumerable<ScheduledMessage> schedules,
     IServiceProvider services,
     ILogger<MessageScheduler> logger
@@ -57,12 +57,18 @@ internal sealed class MessageScheduler(
             {
                 // A failed publish (the broker having a bad moment) must not kill the schedule;
                 // the next occurrence tries again.
-                logger.LogWarning(
-                    exception,
-                    "Failed to publish scheduled message {MessageType}",
-                    schedule.MessageType
-                );
+                LogPublishFailed(logger, exception, schedule.MessageType);
             }
         }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Failed to publish scheduled message {MessageType}."
+    )]
+    private static partial void LogPublishFailed(
+        ILogger logger,
+        Exception exception,
+        string messageType
+    );
 }

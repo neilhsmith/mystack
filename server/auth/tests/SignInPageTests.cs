@@ -140,6 +140,75 @@ public sealed class SignInPageTests(AuthAppFixture app)
         response.Headers.Location!.ToString().ShouldBe("/");
     }
 
+    // Five wrong guesses lock the account; even the right password then gets the same generic
+    // answer, so lockout is invisible from the outside and honest only in the metric.
+    [Fact]
+    public async Task RepeatedFailures_LockTheAccount_BehindTheSameGenericAnswer()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var signIns = CreateSignInCollector();
+        var email = $"lockout-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var failure = await OAuth.SignInAsync(
+                client,
+                email,
+                "not the right passphrase",
+                cancellationToken: cancellationToken
+            );
+            failure.StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        var lockedOut = await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            cancellationToken: cancellationToken
+        );
+
+        // The correct password no longer signs in — and the page says exactly what it always
+        // says.
+        lockedOut.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await lockedOut.Content.ReadAsStringAsync(cancellationToken)).ShouldContain(GenericError);
+        signIns
+            .GetMeasurementSnapshot()
+            .ShouldContain(measurement => (string?)measurement.Tags["result"] == "locked_out");
+    }
+
+    // Every credential form rides antiforgery; a POST without the token must die before the
+    // handler, not reach it.
+    [Fact]
+    public async Task Post_WithoutTheAntiforgeryToken_IsRejected()
+    {
+        var email = $"forgery-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+        var response = await client.PostAsync(
+            "/signin",
+            new FormUrlEncodedContent(
+                new Dictionary<string, string>
+                {
+                    ["Email"] = email,
+                    ["Password"] = AuthAppFixture.DefaultPassword,
+                }
+            ),
+            TestContext.Current.CancellationToken
+        );
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
+        {
+            cookies.ShouldNotContain(
+                cookie => cookie.StartsWith(".AspNetCore.Identity.Application"),
+                "nothing should have signed in"
+            );
+        }
+    }
+
     private MetricCollector<long> CreateSignInCollector() =>
         new(
             app.Services.GetRequiredService<IMeterFactory>(),

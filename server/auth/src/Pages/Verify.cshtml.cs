@@ -101,12 +101,16 @@ public sealed class VerifyModel(
 
         // The same funnel every user token goes through — roles, permission overrides,
         // destinations — with the scopes the device asked for. OpenIddict attaches this
-        // principal to the device code, and the device's next poll becomes tokens.
+        // principal to the device code, and the device's next poll becomes tokens. auth_time is
+        // the approver's cookie issuance: the device's tokens are as fresh as the session that
+        // blessed them.
+        var cookie = await HttpContext.AuthenticateAsync(IdentityConstants.ApplicationScheme);
         var principal = await TokenPrincipals.CreateAsync(
             signInManager,
             database,
             user,
-            result.Principal!.GetScopes()
+            result.Principal!.GetScopes(),
+            cookie.Properties?.IssuedUtc
         );
 
         return SignIn(

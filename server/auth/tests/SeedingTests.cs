@@ -9,8 +9,12 @@ using Shouldly;
 
 namespace MyStack.Auth.Tests;
 
-// Boot-level behavior gets its own database per test (AuthAppFixture.CreateDatabaseAsync): these
-// tests must not rewrite the client every other test drives.
+// Boot-level behavior that *commits* gets its own database per test
+// (AuthAppFixture.CreateDatabaseAsync): those boots must not rewrite the clients every other test
+// drives. The failing-boot tests run against the shared database on purpose — safe only because
+// DatabaseInitializer wraps the whole seed in one transaction, so a boot that throws rolls back
+// every reconciliation it performed first. If the seeder ever commits per item, those tests must
+// move onto their own databases.
 public sealed class SeedingTests(AuthAppFixture app)
 {
     // The shared host is itself a fresh boot against an empty database, so it is the
@@ -68,6 +72,17 @@ public sealed class SeedingTests(AuthAppFixture app)
         (await applications.GetRequirementsAsync(par, cancellationToken)).ShouldContain("ft:par");
         (await applications.GetPermissionsAsync(client, cancellationToken)).ShouldContain(
             "ept:pushed_authorization"
+        );
+
+        // The confidential browser shape: a secret-holding client gains introspection — the
+        // liveness check a BFF runs without holding auth's key material.
+        var confidential = await applications.FindByClientIdAsync(
+            AuthAppFixture.ConfidentialClientId,
+            cancellationToken
+        );
+        confidential.ShouldNotBeNull();
+        (await applications.GetPermissionsAsync(confidential, cancellationToken)).ShouldContain(
+            "ept:introspection"
         );
 
         (await applications.GetSettingsAsync(client, cancellationToken)).ShouldContainKey(
@@ -303,6 +318,92 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
             .ShouldContain(message => message.Contains("BackchannelLogoutUri"));
+    }
+
+    // Every misdeclared client shape the seeder refuses, one theory row each: failing to boot
+    // beats booting wrong (§3.4). Shared database — the failed seed rolls back (class comment).
+    public static TheoryData<string, string, string, string?> Misdeclarations =>
+        new()
+        {
+            { "browser without redirects", "Public", "", "has no RedirectUris" },
+            { "confidential without a secret", "Confidential", "RedirectUris:0", "has no Secret" },
+            { "public with a secret", "Public|Secret", "RedirectUris:0", "declares a Secret" },
+            { "machine without a secret", "Machine", "", "has no Secret" },
+            {
+                "machine with redirects",
+                "Machine|Secret",
+                "RedirectUris:0",
+                "declares redirect URIs"
+            },
+            {
+                "machine requiring PAR",
+                "Machine|Secret|RequirePar",
+                "",
+                "never uses the authorization endpoint"
+            },
+            { "device with a secret", "Device|Secret", "", "declares a Secret" },
+            { "device with redirects", "Device", "RedirectUris:0", "declares redirect URIs" },
+            {
+                "device requiring PAR",
+                "Device|RequirePar",
+                "",
+                "never uses the authorization endpoint"
+            },
+            { "unknown scope", "Public|BadScope", "RedirectUris:0", "unknown scope" },
+            // On Unix a bare "/path" parses as an absolute file:// URI, so this row also pins
+            // the seeder's http(s) scheme check.
+            {
+                "relative redirect URI",
+                "Public",
+                "RelativeRedirect",
+                "not an absolute http(s) URI"
+            },
+        };
+
+    [Theory]
+    [MemberData(nameof(Misdeclarations))]
+    public void MisdeclaredClientShape_FailsStartup(
+        string label,
+        string shape,
+        string extras,
+        string? messageFragment
+    )
+    {
+        var parts = shape.Split('|');
+        var settings = new Dictionary<string, string?>
+        {
+            ["Seed:Clients:4:ClientId"] = "misdeclared",
+            ["Seed:Clients:4:Type"] = parts[0],
+        };
+
+        if (parts.Contains("Secret"))
+        {
+            settings["Seed:Clients:4:Secret"] = "a secret";
+        }
+
+        if (parts.Contains("RequirePar"))
+        {
+            settings["Seed:Clients:4:RequirePushedAuthorizationRequests"] = "true";
+        }
+
+        if (parts.Contains("BadScope"))
+        {
+            settings["Seed:Clients:4:Scopes:0"] = "made.up";
+        }
+
+        if (extras == "RedirectUris:0")
+        {
+            settings["Seed:Clients:4:RedirectUris:0"] = "http://localhost/misdeclared";
+        }
+        else if (extras == "RelativeRedirect")
+        {
+            settings["Seed:Clients:4:RedirectUris:0"] = "/relative";
+        }
+
+        using var factory = Factory(app.DatabaseConnectionString, settings);
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains(messageFragment!), label);
     }
 
     // Two instances booting against one fresh database — the race the advisory lock exists for.

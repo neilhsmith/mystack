@@ -551,11 +551,13 @@ internal sealed partial class AuthSeeder(
         stored.Count == wanted.Count
         && wanted.All(pair => stored.TryGetValue(pair.Key, out var value) && value == pair.Value);
 
+    // The scheme check matters on Unix, where a bare "/path" parses as an absolute file:// URI —
+    // the same trap AccountOptions guards its PublicBaseUrl against.
     private static Uri ParseUri(string clientId, string value) =>
-        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
             ? uri
             : throw new InvalidOperationException(
-                $"Client '{clientId}' declares '{value}', which is not an absolute URI."
+                $"Client '{clientId}' declares '{value}', which is not an absolute http(s) URI."
             );
 
     private static void ThrowIfFailed(IdentityResult result, string what)

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -82,7 +83,10 @@ internal static class OidcEndpoints
             signInManager,
             database,
             user,
-            request.GetScopes()
+            request.GetScopes(),
+            // auth_time is the cookie's issuance — the same instant the max_age check above
+            // measures against, so the claim and the enforcement can never disagree.
+            result.Properties?.IssuedUtc
         );
 
         return Results.SignIn(
@@ -150,12 +154,14 @@ internal static class OidcEndpoints
 
         // Rebuilt from the store rather than copied from the incoming token, so role, email and
         // override changes take effect on the next refresh instead of surviving to the token's
-        // horizon.
+        // horizon. auth_time is the exception — carried forward, because refreshing is not
+        // authenticating.
         var principal = await TokenPrincipals.CreateAsync(
             signInManager,
             database,
             user,
-            result.Principal!.GetScopes()
+            result.Principal!.GetScopes(),
+            TokenPrincipals.AuthenticatedAt(result.Principal)
         );
 
         return Results.SignIn(
@@ -195,7 +201,8 @@ internal static class OidcEndpoints
             signInManager,
             database,
             user,
-            result.Principal!.GetScopes()
+            result.Principal!.GetScopes(),
+            TokenPrincipals.AuthenticatedAt(result.Principal)
         );
 
         var claims = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -209,12 +216,11 @@ internal static class OidcEndpoints
                 .GroupBy(claim => claim.Type)
         )
         {
-            // One value serializes as a JSON string, several as an array — the same shape rule
-            // the JWTs follow.
+            // One value serializes as a JSON value, several as an array — the same shape rule
+            // the JWTs follow, numeric claims (auth_time) staying numbers rather than
+            // stringifying through Claim.Value.
             claims[group.Key] =
-                group.Count() == 1
-                    ? group.First().Value
-                    : group.Select(claim => claim.Value).ToArray();
+                group.Count() == 1 ? ClaimValue(group.First()) : group.Select(ClaimValue).ToArray();
         }
 
         return Results.Ok(claims);
@@ -261,6 +267,12 @@ internal static class OidcEndpoints
             [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]
         );
     }
+
+    private static object ClaimValue(Claim claim) =>
+        claim.ValueType is ClaimValueTypes.Integer64 or ClaimValueTypes.Integer32
+        && long.TryParse(claim.Value, out var number)
+            ? number
+            : claim.Value;
 
     private static IResult Forbid(string error, string description) =>
         Results.Forbid(

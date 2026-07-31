@@ -37,11 +37,21 @@ public sealed class DiscoveryTests(AuthAppFixture app)
             .GetString()
             .ShouldEndWith("/connect/par");
 
+        // Exactly S256: `plain` is challenge == verifier — none of the interception protection
+        // PKCE exists for — and OAuth 2.1 disallows it, so advertising it would be a bug.
         document
             .GetProperty("code_challenge_methods_supported")
             .EnumerateArray()
             .Select(method => method.GetString())
-            .ShouldContain("S256");
+            .ShouldBe(["S256"]);
+
+        // Exactly what the authorize handler implements — advertising `consent` or
+        // `select_account` would promise behavior nothing here has.
+        document
+            .GetProperty("prompt_values_supported")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ShouldBe(["login", "none"], ignoreOrder: true);
 
         var scopes = document
             .GetProperty("scopes_supported")

@@ -29,6 +29,20 @@ public static class ObservabilityExtensions
             console.TimestampFormat = "HH:mm:ss ";
         });
 
+        // The category pair that makes the envelope the only per-request log line: the
+        // framework's own request logs quieted, the envelope's category audible. Defaults here
+        // so a new host can't forget them — any Logging:LogLevel configuration for these
+        // categories takes the config path instead and wins.
+        if (builder.Configuration["Logging:LogLevel:Microsoft.AspNetCore"] is null)
+        {
+            builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+        }
+
+        if (builder.Configuration["Logging:LogLevel:Microsoft.AspNetCore.HttpLogging"] is null)
+        {
+            builder.Logging.AddFilter("Microsoft.AspNetCore.HttpLogging", LogLevel.Information);
+        }
+
         // The request envelope — method, path, status, duration — and nothing more. Bodies wait
         // for the [Redact] masking machinery (architecture §3), and query strings are left out
         // because auth's carry confirm/reset tokens; a host whose queries are worth logging
@@ -47,13 +61,22 @@ public static class ObservabilityExtensions
         var telemetry = builder
             .Services.AddOpenTelemetry()
             .ConfigureResource(resource =>
-                resource.AddService(
-                    serviceName,
-                    // The namespace is what groups `api` and `auth` as one product in a backend
-                    // that sees more than this stack.
-                    serviceNamespace: "mystack",
-                    serviceVersion: ApplicationVersion(builder.Environment)
-                )
+                resource
+                    .AddService(
+                        serviceName,
+                        // The namespace is what groups `api` and `auth` as one product in a
+                        // backend that sees more than this stack.
+                        serviceNamespace: "mystack",
+                        serviceVersion: ApplicationVersion(builder.Environment)
+                    )
+                    // Which environment the stream came from — without it a hosted backend
+                    // can't tell staging's telemetry from production's.
+                    .AddAttributes([
+                        new KeyValuePair<string, object>(
+                            "deployment.environment.name",
+                            builder.Environment.EnvironmentName
+                        ),
+                    ])
             )
             .WithTracing(tracing =>
                 tracing
@@ -114,9 +137,9 @@ public static class ObservabilityExtensions
     }
 
     /// <summary>
-    /// Emits <c>act.sub</c> onto the request span and the log scope when the authenticated
-    /// principal carries an <c>act</c> claim. Register it after authentication — before it, there
-    /// is no principal to read.
+    /// Emits the authenticated principal's <c>sub</c> — and <c>act.sub</c> when an <c>act</c>
+    /// claim is present — onto the request span and the log scope. Register it after
+    /// authentication; before it, there is no principal to read.
     /// </summary>
     public static IApplicationBuilder UseActorEnrichment(this IApplicationBuilder app) =>
         app.UseMiddleware<ActorEnrichmentMiddleware>();

@@ -16,9 +16,12 @@ public sealed class RegisterModel(
     AuthMetrics metrics
 ) : PageModel
 {
+    // 256 is the schema's varchar bound — without the guard an oversized address dies as a
+    // database truncation error, a distinguishable 500 instead of a validation message.
     [BindProperty]
     [Required]
     [EmailAddress]
+    [StringLength(256, ErrorMessage = "Email addresses must be 256 characters or fewer.")]
     public string? Email { get; set; }
 
     [BindProperty]
@@ -43,10 +46,13 @@ public sealed class RegisterModel(
 
         // Password policy before the existence lookup, so a rejected password reads the same
         // whether or not the address has an account — otherwise a deliberately weak password is
-        // an existence probe (anti-enumeration, architecture §3).
+        // an existence probe (anti-enumeration, architecture §3). The validators see a prospect
+        // rather than null: the built-in validator never reads the user, but a custom one (a
+        // password-differs-from-email rule, say) would dereference it.
+        var prospect = new ApplicationUser { UserName = Email!, Email = Email! };
         foreach (var validator in users.PasswordValidators)
         {
-            var validation = await validator.ValidateAsync(users, null!, Password!);
+            var validation = await validator.ValidateAsync(users, prospect, Password!);
             if (!validation.Succeeded)
             {
                 foreach (var error in validation.Errors)

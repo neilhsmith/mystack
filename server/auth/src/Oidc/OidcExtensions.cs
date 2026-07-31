@@ -15,6 +15,25 @@ internal static class OidcExtensions
             builder.Configuration.GetSection(OidcOptions.SectionName).Get<OidcOptions>()
             ?? new OidcOptions();
 
+        // The same section, through the options pipeline too: the one-shot read above feeds the
+        // server builder before the container exists, and this registration makes
+        // IOptions<OidcOptions> resolvable and fails the boot on a nonsense lifetime instead of
+        // silently issuing dead-on-arrival tokens.
+        builder
+            .Services.AddOptions<OidcOptions>()
+            .BindConfiguration(OidcOptions.SectionName)
+            .Validate(
+                options =>
+                    options.AccessTokenLifetime > TimeSpan.Zero
+                    && options.IdentityTokenLifetime > TimeSpan.Zero
+                    && options.AuthorizationCodeLifetime > TimeSpan.Zero
+                    && options.RefreshTokenLifetime > TimeSpan.Zero
+                    && options.DeviceCodeLifetime > TimeSpan.Zero
+                    && options.UserCodeLifetime > TimeSpan.Zero,
+                "Every Oidc:* lifetime must be positive."
+            )
+            .ValidateOnStart();
+
         builder.Services.AddScoped<GrantMetricsHandler>();
         builder.Services.AddScoped<BackchannelLogoutNotifier>();
 
@@ -69,6 +88,24 @@ internal static class OidcExtensions
                     .SetDeviceCodeLifetime(lifetimes.DeviceCodeLifetime)
                     .SetUserCodeLifetime(lifetimes.UserCodeLifetime);
 
+                // The refresh horizon is absolute. OpenIddict's default slides the window
+                // forward on every rotation, so a session refreshing at least fortnightly would
+                // never re-authenticate — docs/auth.md sells the 14 days as a hard ceiling, and
+                // this is what makes that true.
+                server.DisableSlidingRefreshTokenExpiration();
+
+                // Two default sets trimmed to what this server actually honors: `plain` PKCE is
+                // challenge == verifier — none of the interception protection PKCE exists for,
+                // and the one OAuth 2.1 deviation the review found — and discovery advertised
+                // prompt values (`consent`, `select_account`) nothing here implements: there is
+                // no consent screen (D17) and one cookie session to select from.
+                server.Configure(options =>
+                {
+                    options.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain);
+                    options.PromptValues.Remove(PromptValues.Consent);
+                    options.PromptValues.Remove(PromptValues.SelectAccount);
+                });
+
                 // `server/api` validates access tokens as plain JWTs against the discovery
                 // document; encrypted tokens would force it onto auth's key material instead.
                 server.DisableAccessTokenEncryption();
@@ -81,6 +118,11 @@ internal static class OidcExtensions
                 {
                     // In-memory keys: the test host must not write to a CI runner's cert store.
                     server.AddEphemeralEncryptionKey().AddEphemeralSigningKey();
+
+                    // The default 30-second reuse leeway exists so a client's concurrent
+                    // refreshes don't trip reuse detection; zeroed here so the
+                    // replay-after-rotation test observes the revocation immediately.
+                    server.SetRefreshTokenReuseLeeway(TimeSpan.Zero);
                 }
                 // Anywhere else key material has to be configured deliberately, and OpenIddict
                 // refuses to boot without it — recorded in docs/auth.md's hardening items.
