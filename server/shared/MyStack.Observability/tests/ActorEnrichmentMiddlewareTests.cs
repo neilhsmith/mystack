@@ -15,12 +15,50 @@ public sealed class ActorEnrichmentMiddlewareTests
         var logger = new ScopeRecordingLogger();
         var middleware = new ActorEnrichmentMiddleware(_ => Task.CompletedTask, logger);
 
-        await middleware.InvokeAsync(ContextFor("""{"sub":"admin-1"}"""));
+        await middleware.InvokeAsync(ContextFor(new Claim("act", """{"sub":"admin-1"}""")));
 
         activity.GetTagItem("act.sub").ShouldBe("admin-1");
         var scope = logger
             .Scopes.ShouldHaveSingleItem()
             .ShouldBeAssignableTo<IReadOnlyDictionary<string, object>>();
+        scope!["act.sub"].ShouldBe("admin-1");
+    }
+
+    [Fact]
+    public async Task Invoke_TagsTheSubject_ForAnyAuthenticatedPrincipal()
+    {
+        using var activity = new Activity("request").Start();
+        var logger = new ScopeRecordingLogger();
+        var middleware = new ActorEnrichmentMiddleware(_ => Task.CompletedTask, logger);
+
+        await middleware.InvokeAsync(ContextFor(new Claim("sub", "user-7")));
+
+        activity.GetTagItem("sub").ShouldBe("user-7");
+        activity.GetTagItem("act.sub").ShouldBeNull();
+        var scope = logger
+            .Scopes.ShouldHaveSingleItem()
+            .ShouldBeAssignableTo<IReadOnlyDictionary<string, object>>();
+        scope!["sub"].ShouldBe("user-7");
+    }
+
+    // The impersonation shape: one scope carrying both, so every log line names the pair.
+    [Fact]
+    public async Task Invoke_TagsSubjectAndActorTogether_WhenImpersonating()
+    {
+        using var activity = new Activity("request").Start();
+        var logger = new ScopeRecordingLogger();
+        var middleware = new ActorEnrichmentMiddleware(_ => Task.CompletedTask, logger);
+
+        await middleware.InvokeAsync(
+            ContextFor(new Claim("sub", "user-7"), new Claim("act", """{"sub":"admin-1"}"""))
+        );
+
+        activity.GetTagItem("sub").ShouldBe("user-7");
+        activity.GetTagItem("act.sub").ShouldBe("admin-1");
+        var scope = logger
+            .Scopes.ShouldHaveSingleItem()
+            .ShouldBeAssignableTo<IReadOnlyDictionary<string, object>>();
+        scope!["sub"].ShouldBe("user-7");
         scope!["act.sub"].ShouldBe("admin-1");
     }
 
@@ -37,12 +75,30 @@ public sealed class ActorEnrichmentMiddlewareTests
         logger.Scopes.ShouldBeEmpty();
     }
 
-    private static DefaultHttpContext ContextFor(string act) =>
-        new()
+    // A sub claim on an unauthenticated identity is noise, not identity — nothing is emitted.
+    [Fact]
+    public async Task Invoke_IgnoresClaims_OnAnUnauthenticatedPrincipal()
+    {
+        using var activity = new Activity("request").Start();
+        var logger = new ScopeRecordingLogger();
+        var middleware = new ActorEnrichmentMiddleware(_ => Task.CompletedTask, logger);
+
+        var context = new DefaultHttpContext
         {
             User = new ClaimsPrincipal(
-                new ClaimsIdentity([new Claim("act", act)], authenticationType: "test")
+                new ClaimsIdentity([new Claim("sub", "user-7")], authenticationType: null)
             ),
+        };
+        await middleware.InvokeAsync(context);
+
+        activity.GetTagItem("sub").ShouldBeNull();
+        logger.Scopes.ShouldBeEmpty();
+    }
+
+    private static DefaultHttpContext ContextFor(params Claim[] claims) =>
+        new()
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "test")),
         };
 
     private sealed class ScopeRecordingLogger : ILogger<ActorEnrichmentMiddleware>

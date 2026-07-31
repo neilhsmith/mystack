@@ -62,6 +62,9 @@ wire, with the worker running so the emails actually deliver.
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
 `ConnectionStrings__AuthDb` from its own configuration, and user-secrets is the local override.
+One managed-Postgres caveat: point the connection string at a **direct (session) endpoint**,
+never a transaction-mode pooler (PgBouncer et al.) — the boot's advisory lock and Wolverine's
+durability agents both need session semantics, and a transaction pooler silently breaks them.
 
 ## The schema
 
@@ -90,6 +93,14 @@ Keys are **application-generated version 7 UUIDs**. The timestamp in the leading
 Postgres, which orders `uuid` by its canonical byte order, keeps appending to the primary key index
 instead of fragmenting it. Generating them in the entity rather than the database also means the
 `sub` a token will carry is known before `SaveChanges`.
+
+Two index decisions go beyond the frameworks' defaults: the email index is **unique** — Identity
+ships it non-unique because emails are optional in the general framework, but here the email *is*
+the identity, so the database enforces what `RequireUniqueEmail` promises and the
+concurrent-registration race dies at the constraint — and `oidc_tokens` gains indexes on
+`subject` and `creation_date`, because OpenIddict's stock indexes lead with the application id
+while revocation-on-credential-change looks up by subject alone and the nightly prune filters on
+age.
 
 ## Identity policy
 
@@ -126,7 +137,12 @@ reason Identity's were.
 
 **Authorization code + PKCE with refresh tokens for humans, client credentials for machines, the
 device grant for clients without a browser — and no other flow.** PKCE is required globally
-rather than per client, so no future registration can quietly opt out. A machine client is
+rather than per client, so no future registration can quietly opt out — and **S256 is the only
+accepted challenge method**: OpenIddict's default also takes `plain`, which is challenge ==
+verifier and none of the interception protection PKCE exists for, so the hardening pass removed
+it (the one OAuth 2.1 deviation the review found). Discovery likewise advertises only the prompt
+values the authorize handler implements (`login`, `none`) — the defaults included `consent` and
+`select_account`, which nothing here honors. A machine client is
 confidential by construction; its token carries the client's own identity — `sub` is the client
 id — and its granted scopes, and never a user claim, an id token or a refresh token. **There is
 no password grant, in any environment** — `grant_types_supported` in the discovery document is
@@ -185,22 +201,32 @@ sign-out still propagates. Deliberate shape, recorded once:
 **Lifetimes are configuration** — the `Oidc:*` keys above, with the defaults committed in
 `appsettings.json`. Refresh tokens rotate: every refresh issues a new one, and the token endpoint
 re-validates the user against the store on each exchange, so role and email changes take effect on
-the next refresh rather than surviving to the token's horizon.
+the next refresh rather than surviving to the token's horizon. **The horizon is absolute**:
+OpenIddict's default slides the window forward on every rotation — a session refreshing at least
+fortnightly would never re-authenticate — so sliding expiration is disabled and fourteen days
+means fourteen days. Replaying a refresh token that was already rotated away revokes the whole
+grant chain (reuse detection), so a stolen copy turns into a forced re-authentication rather than
+a silent parallel session.
 
-**Claim destinations are deny-by-default.** `email`, `role` and `name` reach the access token —
-plus the identity token when their scope was granted; `perm` and `perm_deny` (see Permission
-overrides) are access-token-only — an identity token describes who the user is, never what they
-may do; anything unlisted — Identity's security stamp,
-concretely — reaches no token at all, which the flow test proves. A token granted an `api.*` scope
-carries `aud: api`. Access tokens are signed but **not encrypted** JWTs: `server/api` validates
-them against the discovery document rather than sharing auth's key material.
+**Claim destinations are deny-by-default, and scope gates both copies.** `email`, `name` and
+`role` reach the access token *and* the identity token only when their scope (`email`, `profile`,
+`roles`) was granted — a token granted only `api.read` authorizes API calls and identifies
+nobody, because an unencrypted JWT is not exempt from data minimization just because the API is
+first-party. `auth_time` — when the user actually authenticated — rides both tokens (OIDC
+requires it in the id token whenever the client sent `max_age`; RFC 9068 lists it for access
+tokens) and survives refresh unchanged, because refreshing is not authenticating. `perm` and
+`perm_deny` (see Permission overrides) are access-token-only — an identity token describes who
+the user is, never what they may do; anything unlisted — Identity's security stamp, concretely —
+reaches no token at all, which the flow test proves. A token granted an `api.*` scope carries
+`aud: api`. Access tokens are signed but **not encrypted** JWTs: `server/api` validates them
+against the discovery document rather than sharing auth's key material.
 
 **Userinfo answers exactly per granted scope.** `/connect/userinfo` rebuilds the principal
 through the same funnel token issuance uses and returns the claims whose destination includes the
-identity token — `sub` always, then `email`, `name` and `role` as their scopes were granted — so
-userinfo and the id token agree by construction and can never drift; `perm`/`perm_deny` stay out
-of both. A token with no user behind it — any machine token — gets `invalid_token`: there is
-nobody to describe.
+identity token — `sub` always, `auth_time` carried forward from the presented token, then
+`email`, `name` and `role` as their scopes were granted — so userinfo and the id token agree by
+construction and can never drift; `perm`/`perm_deny` stay out of both. A token with no user
+behind it — any machine token — gets `invalid_token`: there is nobody to describe.
 
 **Introspection is for confidential callers only.** `/connect/introspection` (RFC 7662) answers
 whether a token is live, for callers that can't validate JWTs locally. OpenIddict handles it
@@ -311,7 +337,10 @@ validates password policy *before* the existence lookup, so a deliberately weak 
 probe either. Reset links go to confirmed addresses only: an unconfirmed address was never proven
 to belong to its registrant, and a reset link would leapfrog confirmation. The honest outcomes
 live in the metric tags. Change-password is the deliberate exception — the caller is already that
-account's session, so "incorrect password" reveals nothing.
+account's session, so "incorrect password" reveals nothing. It is **not** exempt from lockout,
+though: the form verifies the current password, which makes it a guessing surface for a hijacked
+cookie, so wrong attempts count against the same five-strikes lockout the sign-in page enforces —
+`ChangePasswordAsync` never touches the counters on its own, so the page does it by hand.
 
 **A credential change ends the sessions it should.** Reset and change both revoke the subject's
 OpenIddict tokens and authorizations (refresh tokens on other devices die immediately; access
@@ -467,7 +496,7 @@ What auth emits today:
   `resend_unknown_email`), `auth.password_resets` (`stage` `requested`: `sent`, `unknown_email`,
   `unconfirmed_email`; `stage` `completed`: `reset`, `invalid_token`, `unknown_user`,
   `invalid_password`) and `auth.password_changes` (`outcome`: `changed`,
-  `wrong_current_password`, `invalid_new_password`) — the anti-enumeration flows' honest
+  `wrong_current_password`, `invalid_new_password`, `locked_out`) — the anti-enumeration flows' honest
   outcomes, which the generic responses deliberately hide, so an enumeration run is a rate an
   operator can alert on. Back-channel logout adds `auth.logout_notifications`, tagged
   `client_id` (operator-declared seed config, still a closed set) and `outcome` (`delivered`,

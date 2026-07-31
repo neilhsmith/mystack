@@ -1,4 +1,8 @@
+using System.Diagnostics.Metrics;
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
+using MyStack.Auth.Telemetry;
 using Shouldly;
 
 namespace MyStack.Auth.Tests;
@@ -35,6 +39,7 @@ public sealed class ChangePasswordTests(AuthAppFixture app)
             cancellationToken: cancellationToken
         );
 
+        using var changes = CreateChangeCollector();
         var response = await PageForms.SubmitAsync(
             client,
             "/change-password",
@@ -46,6 +51,11 @@ public sealed class ChangePasswordTests(AuthAppFixture app)
         (await response.Content.ReadAsStringAsync(cancellationToken)).ShouldContain(
             "Incorrect password"
         );
+        changes
+            .GetMeasurementSnapshot()
+            .ShouldContain(measurement =>
+                (string?)measurement.Tags["outcome"] == "wrong_current_password"
+            );
         await WorkerQueue.EnsureNoEmailAsync(app, email, cancellationToken);
 
         using var freshClient = app.CreateFlowClient();
@@ -122,6 +132,7 @@ public sealed class ChangePasswordTests(AuthAppFixture app)
         );
         var refreshToken = tokens.GetProperty("refresh_token").GetString()!;
 
+        using var changes = CreateChangeCollector();
         var response = await PageForms.SubmitAsync(
             client,
             "/change-password",
@@ -131,6 +142,9 @@ public sealed class ChangePasswordTests(AuthAppFixture app)
         (await response.Content.ReadAsStringAsync(cancellationToken)).ShouldContain(
             "Password changed"
         );
+        changes
+            .GetMeasurementSnapshot()
+            .ShouldContain(measurement => (string?)measurement.Tags["outcome"] == "changed");
 
         // The owner hears about it, the other device's refresh token dies, and the browser that
         // made the change keeps its session.
@@ -166,6 +180,57 @@ public sealed class ChangePasswordTests(AuthAppFixture app)
             )
         ).StatusCode.ShouldBe(HttpStatusCode.Found);
     }
+
+    // The change-password form verifies the current password, so a hijacked cookie must not get
+    // unlimited guesses at it: the sign-in lockout counts here too, and once locked even the
+    // correct password is refused.
+    [Fact]
+    public async Task RepeatedWrongCurrentPasswords_LockTheAccount()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"change-lockout-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+        await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            cancellationToken: cancellationToken
+        );
+
+        using var changes = CreateChangeCollector();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await PageForms.SubmitAsync(
+                client,
+                "/change-password",
+                ChangeForm("not the right passphrase", NewPassword),
+                cancellationToken
+            );
+        }
+
+        var lockedOut = await PageForms.SubmitAsync(
+            client,
+            "/change-password",
+            ChangeForm(AuthAppFixture.DefaultPassword, NewPassword),
+            cancellationToken
+        );
+
+        (await lockedOut.Content.ReadAsStringAsync(cancellationToken)).ShouldContain(
+            "Too many incorrect attempts"
+        );
+        changes
+            .GetMeasurementSnapshot()
+            .ShouldContain(measurement => (string?)measurement.Tags["outcome"] == "locked_out");
+    }
+
+    private MetricCollector<long> CreateChangeCollector() =>
+        new(
+            app.Services.GetRequiredService<IMeterFactory>(),
+            AuthMetrics.MeterName,
+            "auth.password_changes"
+        );
 
     private static Dictionary<string, string> ChangeForm(string current, string next) =>
         new()

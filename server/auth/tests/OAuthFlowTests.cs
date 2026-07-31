@@ -127,6 +127,151 @@ public sealed class OAuthFlowTests(AuthAppFixture app)
         rejected.GetProperty("error").GetString().ShouldBe("invalid_grant");
     }
 
+    // Scope gates the access token too: granted only api.read, the token authorizes API calls
+    // and identifies nobody — email, name and role stay out of an unencrypted JWT the client
+    // never asked to carry them.
+    [Fact]
+    public async Task AccessToken_WithoutIdentityScopes_CarriesNoIdentityClaims()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"narrow-{Guid.NewGuid():N}@example.test";
+        var user = await app.CreateUserAsync(email, role: "auditor");
+
+        var tokens = await TokensAsync("openid api.read", email, cancellationToken);
+
+        var claims = OAuth.DecodeJwtPayload(tokens.GetProperty("access_token").GetString()!);
+        claims.GetProperty("sub").GetString().ShouldBe(user.Id.ToString());
+        Audience(claims).ShouldBe("api");
+        claims.TryGetProperty("email", out _).ShouldBeFalse();
+        claims.TryGetProperty("name", out _).ShouldBeFalse();
+        claims.TryGetProperty("role", out _).ShouldBeFalse();
+    }
+
+    // OIDC requires auth_time in the id token whenever the client sent max_age — and a refresh
+    // must carry the original authentication time forward, because refreshing is not
+    // authenticating.
+    [Fact]
+    public async Task IdToken_CarriesAuthTime_AndARefreshPreservesIt()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"authtime-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        var tokens = await TokensAsync("openid offline_access", email, cancellationToken);
+
+        var authTime = OAuth
+            .DecodeJwtPayload(tokens.GetProperty("id_token").GetString()!)
+            .GetProperty("auth_time")
+            .GetInt64();
+        authTime.ShouldBeInRange(
+            DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeSeconds(),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        );
+
+        var refreshed = await OAuth.ExchangeAsync(
+            app.Client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = tokens.GetProperty("refresh_token").GetString()!,
+                ["client_id"] = AuthAppFixture.ClientId,
+            },
+            cancellationToken: cancellationToken
+        );
+
+        OAuth
+            .DecodeJwtPayload(refreshed.GetProperty("id_token").GetString()!)
+            .GetProperty("auth_time")
+            .GetInt64()
+            .ShouldBe(authTime);
+    }
+
+    // The stolen-token detection story: replaying a refresh token that was already rotated away
+    // revokes the whole grant chain, so the thief's copy and the legitimate one both die.
+    // (Testing zeroes OpenIddict's 30-second reuse leeway so the replay is observable.)
+    [Fact]
+    public async Task ReplayingARotatedRefreshToken_RevokesTheWholeChain()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"replay-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        var tokens = await TokensAsync("openid offline_access", email, cancellationToken);
+        var original = tokens.GetProperty("refresh_token").GetString()!;
+
+        var refreshed = await OAuth.ExchangeAsync(
+            app.Client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = original,
+                ["client_id"] = AuthAppFixture.ClientId,
+            },
+            cancellationToken: cancellationToken
+        );
+        var rotated = refreshed.GetProperty("refresh_token").GetString()!;
+
+        var replayed = await OAuth.ExchangeAsync(
+            app.Client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = original,
+                ["client_id"] = AuthAppFixture.ClientId,
+            },
+            HttpStatusCode.BadRequest,
+            cancellationToken
+        );
+        replayed.GetProperty("error").GetString().ShouldBe("invalid_grant");
+
+        // The legitimate holder's rotated token died with the chain — the point of the design:
+        // theft turns into a forced re-authentication instead of a silent parallel session.
+        var chainDead = await OAuth.ExchangeAsync(
+            app.Client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = rotated,
+                ["client_id"] = AuthAppFixture.ClientId,
+            },
+            HttpStatusCode.BadRequest,
+            cancellationToken
+        );
+        chainDead.GetProperty("error").GetString().ShouldBe("invalid_grant");
+    }
+
+    private async Task<JsonElement> TokensAsync(
+        string scope,
+        string email,
+        CancellationToken cancellationToken
+    )
+    {
+        using var client = app.CreateFlowClient();
+        var signIn = await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            cancellationToken: cancellationToken
+        );
+        signIn.StatusCode.ShouldBe(HttpStatusCode.Found);
+
+        var (verifier, challenge) = OAuth.CreatePkcePair();
+        var code = await OAuth.AuthorizeAsync(client, challenge, scope, cancellationToken);
+
+        return await OAuth.ExchangeAsync(
+            client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = code,
+                ["redirect_uri"] = AuthAppFixture.RedirectUri,
+                ["client_id"] = AuthAppFixture.ClientId,
+                ["code_verifier"] = verifier,
+            },
+            cancellationToken: cancellationToken
+        );
+    }
+
     private static string? Audience(JsonElement claims)
     {
         var audience = claims.GetProperty("aud");

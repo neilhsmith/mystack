@@ -261,6 +261,28 @@ public sealed class RegisterFlowTests(AuthAppFixture app)
         outcomes.ShouldContain("resend_unknown_email");
     }
 
+    // The schema stores 256 characters of email; anything longer must die as a validation
+    // message, not as a database truncation error surfacing as a distinguishable 500.
+    [Fact]
+    public async Task AnOversizedEmail_IsAValidationError_NotA500()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var client = app.CreateFlowClient();
+        var oversized = $"{new string('a', 250)}@example.test";
+
+        var response = await PageForms.SubmitAsync(
+            client,
+            "/register",
+            NewAccountForm(oversized),
+            cancellationToken
+        );
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(cancellationToken)).ShouldContain(
+            "256 characters or fewer"
+        );
+    }
+
     private static Dictionary<string, string> NewAccountForm(
         string email,
         string password = AuthAppFixture.DefaultPassword

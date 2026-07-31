@@ -50,10 +50,14 @@ internal static class OAuth
         HttpClient client,
         string challenge,
         string scope,
-        CancellationToken cancellationToken = default
+        CancellationToken cancellationToken = default,
+        string clientId = AuthAppFixture.ClientId
     )
     {
-        var response = await client.GetAsync(AuthorizeUrl(challenge, scope), cancellationToken);
+        var response = await client.GetAsync(
+            AuthorizeUrl(challenge, scope, clientId),
+            cancellationToken
+        );
 
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         var location = response.Headers.Location!.ToString();

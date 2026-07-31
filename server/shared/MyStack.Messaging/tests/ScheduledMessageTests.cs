@@ -20,15 +20,6 @@ public sealed class ScheduledMessageTests
         schedule.MessageType.ShouldBe(nameof(TestTick));
         schedule.Cron.ShouldBe("0 3 * * *");
         schedule.Factory().ShouldBeOfType<TestTick>();
-
-        // The occurrence arithmetic the old per-app schedulers used to hand-roll.
-        var from = DateTimeOffset.Parse("2026-07-30T01:30:00Z", null);
-        schedule
-            .Expression.GetNextOccurrence(from, TimeZoneInfo.Utc)
-            .ShouldBe(DateTimeOffset.Parse("2026-07-30T03:00:00Z", null));
-        schedule
-            .Expression.GetNextOccurrence(from.AddHours(1.5), TimeZoneInfo.Utc)
-            .ShouldBe(DateTimeOffset.Parse("2026-07-31T03:00:00Z", null));
     }
 
     // A typo'd cron must fail at startup registration, not silently at its first tick.

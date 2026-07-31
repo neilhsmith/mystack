@@ -1,5 +1,4 @@
 using MailKit.Net.Smtp;
-using MailKit.Security;
 using Microsoft.Extensions.Options;
 using MimeKit;
 
@@ -15,14 +14,12 @@ internal sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSe
 
         // A connection per send: MailKit's SmtpClient is single-threaded and connection-oriented,
         // and at transactional volume the handshake is noise next to pooling's complexity.
-        using var client = new SmtpClient();
+        using var client = new SmtpClient { Timeout = settings.TimeoutSeconds * 1000 };
 
-        // Auto = implicit TLS on 465, STARTTLS wherever the server offers it — which is how the
-        // same adapter speaks plaintext to Mailpit and TLS to a real provider on 587.
         await client.ConnectAsync(
             settings.Host,
             settings.Port,
-            SecureSocketOptions.Auto,
+            settings.SecureSocket,
             cancellationToken
         );
 

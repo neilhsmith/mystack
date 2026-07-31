@@ -28,13 +28,16 @@ Auth is closed when all of these hold:
 - [x] The test suite covers the token shape, anti-enumeration, the seeding pass, and every account
       flow's failure branches.
 - [ ] `docs/auth.md` exists and describes what was actually built.
-- [ ] A production-hardening review has been done and its findings are either fixed or recorded.
+- [x] A production-hardening review has been done and its findings are either fixed or recorded.
+      *Done as step 13: a six-track review (protocol, identity, .NET craft, observability, tests,
+      ops) whose findings were fixed in the hardening pass, folded into step 14's scope, or
+      recorded as step 15.*
 
 ## Deliberately out of scope
 
 Not "forgotten" — genuinely belonging elsewhere:
 
-- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 13 records that a
+- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 14 records that a
   grant-support-access endpoint is coming, which is the only thing owed now.
 - **The permission catalog** — `server/api` owns it (D10). Auth mints permission strings without
   ever interpreting them, so overrides are testable here with arbitrary values.
@@ -91,7 +94,7 @@ dashboard. This is the requirement that put this step here rather than later.
 
 **Lands:** OpenIddict server configuration; authorization, token, end-session and revocation
 endpoints; **authorization code + PKCE**; refresh tokens (`offline_access`); config-driven token
-lifetimes; a functional sign-in page (designed in step 13, not here); the claims the token carries
+lifetimes; a functional sign-in page (designed in step 14, not here); the claims the token carries
 (`sub`, `role`, `email`, and the shape `perm` / `perm_deny` will occupy).
 
 **Metrics:** `auth.sign_ins` and `auth.oauth.grants` (architecture §3's table) — the sign-in page
@@ -241,7 +244,7 @@ refuses public clients; the password grant is still absent from everything.
 ### 11. Device flow + PAR
 
 **Lands:** the **device authorization grant** — device + verification endpoints and the
-user-code verification page (functional here, designed in step 13) — for clients without a
+user-code verification page (functional here, designed in step 14) — for clients without a
 browser or keyboard; **pushed authorization requests** (PAR), with the endpoint on and a
 per-client opt-in requirement, so authorize parameters can travel the back channel instead of the
 URL.
@@ -262,14 +265,61 @@ favor of back-channel; record why).
 **Proves:** ending a session delivers valid logout tokens to fake RPs registered in tests; the
 consumer side lands with each BFF, not here.
 
-### 13. Design + finalize
+### 13. Hardening pass
+
+The full-stack review before the finalize pass: six parallel tracks (protocol/OpenIddict,
+identity + account flows, .NET craft, observability, tests, ops/deployability) over everything
+steps 1–12 built, every finding fixed here, folded into step 14, or recorded as step 15.
+
+**Lands (protocol):** PKCE accepts **S256 only** — OpenIddict's default also took `plain`, the
+one OAuth 2.1 deviation found; discovery's prompt values trimmed to the implemented `login`/
+`none`; refresh-token expiration made genuinely **absolute** (the default slides the window on
+every rotation, so a session refreshing fortnightly would never re-authenticate); `auth_time`
+minted into id and access tokens and carried through refresh and userinfo (OIDC requires it
+whenever a client sends `max_age` — the BFFs' silent-SSO checks will); access-token claims
+**scope-gated** — a token granted only `api.*` carries no email, name or role anywhere, instead
+of PII riding every unencrypted JWT.
+
+**Lands (identity + data):** change-password counts against the same lockout as sign-in — it
+verifies the current password, so a hijacked cookie must not get unlimited guesses (new
+`locked_out` metric outcome); a unique email index — Identity ships it non-unique, and the
+concurrent-registration race now dies at the constraint; `oidc_tokens` indexes on subject and
+creation date for revocation and the prune; oversized emails become a validation message instead
+of a database-truncation 500; the seeder refuses non-http(s) URIs (a bare `/path` parses as an
+absolute `file://` URI on Unix — found by the new misdeclaration tests).
+
+**Lands (libraries + observability):** `deployment.environment.name` on the OTel resource so a
+hosted backend can tell staging from production; the authenticated `sub` enriched onto spans and
+log scopes beside `act.sub`; the envelope log-level pair defaulted inside `AddObservability` so
+`server/api` can't forget it; EF's per-query logs quieted to Warning; the nightly prune logs its
+counts (its only observable outcome); SMTP gains TLS-mode and timeout knobs, and booting a hosted
+environment against Mailpit's port refuses outright — the guard the architecture doc promised;
+`OidcOptions` validated at boot and resolvable through DI.
+
+**Proves:** the review's missing negatives, now tests — sign-in and change-password lockout,
+antiforgery rejection, the unregistered post-logout redirect refused with the session surviving,
+replay of a rotated refresh token killing the whole grant chain, `prompt=none` answering
+`login_required`, `prompt=login` re-authenticating without looping, the full security-header set
+on both policies, a prune survivor (over-deletion was previously invisible), the confidential
+browser client — the BFF's exact shape — completing the flow and introspecting its own token,
+and a theory over every misdeclared seed-client shape.
+
+### 14. Design + finalize
 
 **Lands:** every rendered page designed rather than scaffolded — sign in, register, forgot password,
-reset password, confirm email, device verification, error; there is no consent page (architecture
-D17) — plus an accessibility pass. The Bruno collection committed. `docs/auth.md` written. A
-production-hardening review. A note recording that
-a grant-support-access endpoint is coming, so "auth is finished" doesn't quietly mean "auth is
-closed to impersonation" (plan §3.2's first seam).
+reset password, confirm email, device verification; there is no consent page (architecture
+D17) — plus the pages the hardening review found missing: a root landing page (`/` is the
+default post-sign-in target and end-session fallback, and currently 404s), an error page
+(browsers should never see a raw ProblemDetails body), status-code/404 handling, a signed-out
+confirmation, and an access-denied page. An accessibility pass over all of them. The
+**rate limiter** from the hardening list — IP-partitioned over the anonymous account pages *and*
+`/change-password` and `/connect/verify`. The timing residual's dummy-hash work (the sign-in
+unknown-email path skips the password hash entirely — the sharpest oracle). Two deliberate
+decisions to record: session persistence (the auth cookie is currently a browser-session cookie
+with no remember-me — decide, don't inherit) and whether a bare GET `/connect/endsession` with no
+`id_token_hint` should confirm before signing out. The Bruno collection committed. `docs/auth.md`
+finalized. A note recording that a grant-support-access endpoint is coming, so "auth is finished"
+doesn't quietly mean "auth is closed to impersonation" (plan §3.2's first seam).
 
 **Proves:** the full suite green, a conformance-suite run, and an end-to-end walkthrough of the
 whole project until it is genuinely understood rather than merely working.
@@ -280,6 +330,31 @@ whole project until it is genuinely understood rather than merely working.
 > (§2's rule, and a credentials host must not depend on a JS bundle); visual parity with the
 > future component library comes from sharing the utility classes and design tokens, consciously
 > duplicated like the role names in §3.4.
+
+### 15. Deploy prep (D12)
+
+Auth's production readiness, landing when the deployment topology (architecture D12) is decided —
+the review's recommendation is **Kamal 2** (built for exactly the architecture doc's shape:
+multiple containers on one VPS, health-gated zero-downtime swaps, per-destination staging/prod).
+Partly auth code, partly repo-wide; recorded here because most of it blocks *auth* specifically:
+
+- **OpenIddict key material from configuration** — today only dev certs and test keys exist, and
+  production refuses to boot. Needs code (a config-loaded signing + encryption certificate path),
+  plus a two-key JWKS overlap story for rotation.
+- **Forwarded headers** — `UseForwardedHeaders` with `KnownProxies` pinned to the proxy, plus
+  cookie `SecurePolicy=Always`, so scheme, HSTS, issuer and the `Secure` flag survive TLS
+  termination.
+- **`SetIssuer` pinned from configuration** — the issuer currently follows the Host header
+  (`AllowedHosts` is `*`); a production IdP names itself.
+- **The data-protection key ring's at-rest posture** — decide: `ProtectKeysWithCertificate` once
+  key material exists, or record accepting DB-read ⇒ key compromise on a single-box deploy.
+- Dockerfiles for auth + worker (multi-stage publish, non-root, `/health/ready` as the probe), an
+  image build+push job, and the migration step (an EF bundle run before rollout — `Database:Migrate`
+  stays `false`).
+- Stop grace ≥ 30 s so Wolverine drains on SIGTERM; real worker readiness checks (its
+  `/health/ready` currently runs none); `/health/*` kept off the public proxy; docker log
+  rotation; the OTLP retry env var (`OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY`) or a local collector,
+  since the exporter drops batches silently on transient failures; a queue/outbox-depth gauge.
 
 ---
 

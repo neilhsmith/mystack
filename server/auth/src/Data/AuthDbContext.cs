@@ -49,6 +49,25 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options)
         builder.Entity<ApplicationUser>().Property(user => user.Id).ValueGeneratedNever();
         builder.Entity<ApplicationRole>().Property(role => role.Id).ValueGeneratedNever();
 
+        // Identity ships EmailIndex non-unique because emails are optional in the general
+        // framework; here the email *is* the identity, so the database enforces what
+        // RequireUniqueEmail promises app-side and the concurrent-registration race dies at the
+        // constraint instead of minting two accounts.
+        builder
+            .Entity<ApplicationUser>()
+            .HasIndex(user => user.NormalizedEmail)
+            .HasDatabaseName("EmailIndex")
+            .IsUnique();
+
+        // OpenIddict's stock indexes lead with application_id. Revocation on a credential change
+        // looks tokens up by subject alone, and the nightly prune filters on creation date —
+        // both would walk the whole table once it grows.
+        builder.Entity<OpenIddictEntityFrameworkCoreToken>(entity =>
+        {
+            entity.HasIndex(token => token.Subject);
+            entity.HasIndex(token => token.CreationDate);
+        });
+
         builder.Entity<PermissionOverride>(entity =>
         {
             entity.Property(row => row.Id).ValueGeneratedNever();

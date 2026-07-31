@@ -15,14 +15,15 @@ internal static class TokenPrincipals
 {
     /// <summary>
     /// The principal OpenIddict serializes into tokens: Identity's claims for the user, the
-    /// permission overrides live at this instant, the granted scopes, and a destination per
-    /// claim deciding which token carries it.
+    /// permission overrides live at this instant, the granted scopes, when the user
+    /// authenticated, and a destination per claim deciding which token carries it.
     /// </summary>
     public static async Task<ClaimsPrincipal> CreateAsync(
         SignInManager<ApplicationUser> signInManager,
         AuthDbContext database,
         ApplicationUser user,
-        ImmutableArray<string> scopes
+        ImmutableArray<string> scopes,
+        DateTimeOffset? authenticatedAt
     )
     {
         var principal = await signInManager.CreateUserPrincipalAsync(user);
@@ -39,6 +40,12 @@ internal static class TokenPrincipals
             .ToListAsync();
 
         var identity = (ClaimsIdentity)principal.Identity!;
+
+        // OIDC's auth_time: required in the id token whenever the client sent max_age, minted
+        // always because a numeric timestamp costs nothing and clients use it for freshness
+        // decisions. Null (an old stored principal without one) simply omits the claim.
+        identity.SetClaim(Claims.AuthenticationTime, (long?)authenticatedAt?.ToUnixTimeSeconds());
+
         foreach (var entry in overrides)
         {
             identity.AddClaim(
@@ -102,20 +109,33 @@ internal static class TokenPrincipals
     private static ImmutableArray<string> DestinationsFor(Claim claim, ClaimsPrincipal principal) =>
         claim.Type switch
         {
-            Claims.Name => WithIdentityTokenWhen(principal, Scopes.Profile),
-            Claims.Email => WithIdentityTokenWhen(principal, Scopes.Email),
-            Claims.Role => WithIdentityTokenWhen(principal, Scopes.Roles),
+            // Scope gates both copies: a token granted only `api.read` carries no name, email
+            // or role anywhere. Access tokens are unencrypted JWTs, so they are not exempt from
+            // data minimization just because the API is first-party — a client that wants the
+            // claims asks for the scopes.
+            Claims.Name => WhenScoped(principal, Scopes.Profile),
+            Claims.Email => WhenScoped(principal, Scopes.Email),
+            Claims.Role => WhenScoped(principal, Scopes.Roles),
+            // The id token is where OIDC requires auth_time, and RFC 9068 lists it among a JWT
+            // access token's standard claims — the access-token copy is also what lets userinfo
+            // (which rebuilds from the presented token) carry it forward consistently.
+            Claims.AuthenticationTime => [Destinations.AccessToken, Destinations.IdentityToken],
             AuthClaims.Permission or AuthClaims.PermissionDeny => [Destinations.AccessToken],
             // Deny by default: whatever Identity adds to the cookie principal — the security
             // stamp, today — stays out of every token unless a case above says otherwise.
             _ => [],
         };
 
-    private static ImmutableArray<string> WithIdentityTokenWhen(
-        ClaimsPrincipal principal,
-        string scope
-    ) =>
-        principal.HasScope(scope)
-            ? [Destinations.AccessToken, Destinations.IdentityToken]
-            : [Destinations.AccessToken];
+    private static ImmutableArray<string> WhenScoped(ClaimsPrincipal principal, string scope) =>
+        principal.HasScope(scope) ? [Destinations.AccessToken, Destinations.IdentityToken] : [];
+
+    /// <summary>
+    /// Reads <c>auth_time</c> back off a stored principal — an authorization code, refresh
+    /// token or device code — so re-issuance carries the original authentication time forward
+    /// instead of minting a fresher one.
+    /// </summary>
+    public static DateTimeOffset? AuthenticatedAt(ClaimsPrincipal? principal) =>
+        long.TryParse(principal?.GetClaim(Claims.AuthenticationTime), out var seconds)
+            ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+            : null;
 }
