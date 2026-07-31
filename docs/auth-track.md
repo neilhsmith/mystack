@@ -338,7 +338,7 @@ compose profile rather than running always-on.
   drives the real code + PKCE dance from a pre-request script — one click, credentials from env
   vars, no browser — so the friction the ban imposed is essentially gone; the finalize-pass
   decision remains, but the default is now to keep the ban.
-- **Extract the wire vocabulary into `server/shared/MyStack.Auth.Contracts` — resolved: landed
+- **Extract the wire vocabulary into `server/shared/MyStack.Contracts` — resolved: landed
   immediately after step 10.** The shared-library rule's intent (per the rebuild's author):
   remove confusing unused tooling, not forbid structure — names both sides of the wire must
   spell identically belong in a shared contract, the way `SendEmail` does. The lib carries

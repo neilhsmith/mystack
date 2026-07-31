@@ -98,6 +98,7 @@ mystack/
 │  │  ├─ src/                       # MyStack.Worker.csproj — the consuming host
 │  │  └─ tests/                     # MyStack.Worker.Tests.csproj
 │  ├─ shared/                       # .NET libraries shared across the hosts
+│  │  ├─ MyStack.Contracts/         # wire vocabulary, one directory per topic (Auth/ today)
 │  │  ├─ MyStack.Messaging/         # Wolverine + RabbitMQ conventions, durability, test seam
 │  │  ├─ MyStack.Email/             # IEmailSender + SMTP, message shape, renderers
 │  │  └─ MyStack.Observability/
@@ -138,12 +139,13 @@ version in your head.
   consumer, deliberately. Email is not an identity concern; putting it inside `auth` would say it
   was, and the move later is pure churn. Recorded as a knowing exception, not an oversight.
 - **`MyStack.Observability`** — the primitives both apps need to look the same in a trace.
-- **`MyStack.Auth.Contracts`** — the wire vocabulary auth publishes: `AuthRoles` (auth seeds and
-  mints them; every resource server keys its role→permission map off the same names) and
-  `AuthClaims` (`perm`/`perm_deny`, the inputs to §3.1's arithmetic). Scopes are deliberately
-  excluded as per-resource vocabulary — `api.read` belongs to `server/api`, a future
-  `billing.read` to billing — so each resource declares its own and auth keeps its registration
-  copy: two spellings per resource, never N.
+- **`MyStack.Contracts`** — the wire vocabulary, one assembly with a directory per topic rather
+  than a project per topic. `Auth/` today: `AuthRoles` (auth seeds and mints them; every
+  resource server keys its role→permission map off the same names) and `AuthClaims`
+  (`perm`/`perm_deny`, the inputs to §3.1's arithmetic). Scopes are deliberately excluded as
+  per-resource vocabulary — `api.read` belongs to `server/api`, a future `billing.read` to
+  billing — so each resource declares its own and auth keeps its registration copy: two
+  spellings per resource, never N.
 
 Anything else starts duplicated and gets extracted when the duplication actually hurts.
 
@@ -876,7 +878,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       shape, the renderer seam, the `email.sends` counter; auth's account flows render and
       publish the emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
-- [x] **`MyStack.Auth.Contracts`** — the wire vocabulary: `AuthRoles` + `AuthClaims`, one spelling
+- [x] **`MyStack.Contracts`** — the wire vocabulary: `AuthRoles` + `AuthClaims`, one spelling
       for auth and every resource server (§3.1)
 
 ### apps/web

@@ -1,4 +1,4 @@
-namespace MyStack.Auth.Contracts;
+namespace MyStack.Contracts.Auth;
 
 // The role layer of architecture §3.1: fixed in code, never editable rows, one spelling for the
 // whole system. Auth seeds this list into `auth.roles` and mints memberships as `role` claims;

@@ -268,7 +268,7 @@ pass in `AuthSeeder`. What makes always-on safe is that every account is config-
 environment receives anything it didn't declare — and writes happen only on real drift.
 
 **Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user` —
-declared in `server/shared/MyStack.Auth.Contracts`, the one spelling auth and every resource
+declared in `server/shared/MyStack.Contracts`, the one spelling auth and every resource
 server share) and the API scopes (`api.read`, `api.write`, resource `api`). These are fixed in
 code — a role that exists as a row but not in the API's permission map grants nothing, so a
 config knob would only create ways to be wrong.
