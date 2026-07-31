@@ -566,8 +566,8 @@ second switch was guarding nothing. It went back to one switch — but "always o
 | `Database:Migrate` | on in dev, off in production | schema migration, independent of seeding                                 |
 | `Database:Seed`    | **on everywhere**            | roles + scopes from code, clients + users from config — one safe pass    |
 
-What makes always-on safe is the write policy below: every item is ensured by natural key,
-create-only or real-drift reconcile, so a boot that finds nothing to do writes nothing. The
+What makes always-on safe is the write policy below: every item is ensured by natural key and
+reconciled only on real drift, so a boot that finds nothing to do writes nothing. The
 accepted residual risk is config copied wholesale between environments — mitigated by the fact
 that the values worth protecting (secrets, production URIs) come from each environment's secret
 store, not from committed files.
@@ -642,12 +642,14 @@ environment. Called out here because it is precisely the kind of line that survi
    item a deterministic id or unique slug and ensure them individually; the guard and its workaround
    both disappear.
 
-2. **Declare create-only or reconcile, per item, in the code.** Both policies are correct for
-   different things and picking the wrong one silently destroys data. Clients **reconcile** — diff
-   the descriptor against what's stored and write only on a real change, comparing the secret
-   through `ValidateClientSecretAsync` since it's stored hashed, so an unchanged client is never
-   rewritten and an out-of-band edit survives a reboot. Users are **create-only** — never reset a
-   password a human has changed. `mystack-old` got both right by accident; make the choice explicit.
+2. **Reconcile on real drift only, and declare the password nuance in the code.** Config is the
+   source of truth for what it declares, so everything reconciles: clients diff the descriptor
+   against what's stored (the secret through `ValidateClientSecretAsync`, since it's stored
+   hashed), a declared account's roles sync exactly to config, and an unchanged item is never
+   rewritten. The one carve-out is **passwords, which reconcile only where config declares one** —
+   an absent password is "no opinion", never "remove it", so production, which declares addresses
+   alone, can never reset a password a human set through the reset flow. Accounts config doesn't
+   declare are never touched.
 
 3. **Seed before serving traffic.** `AddHostedService<AuthSeeder>()` registered after the web host
    means Kestrel is already accepting requests while the seeder runs. Run it inline before

@@ -60,17 +60,15 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         await using var first = Factory(connectionString);
         first.CreateClient().Dispose();
-        var (tokenBefore, adminBefore, roleCountBefore) = await SnapshotAsync(first.Services);
+        var before = await SnapshotAsync(first.Services);
 
         await using var second = Factory(connectionString);
         second.CreateClient().Dispose();
-        var (tokenAfter, adminAfter, roleCountAfter) = await SnapshotAsync(second.Services);
+        var after = await SnapshotAsync(second.Services);
 
-        // The client's concurrency token only moves on an update, so equality is "no write" —
-        // not merely "same values".
-        tokenAfter.ShouldBe(tokenBefore);
-        adminAfter.ShouldBe(adminBefore);
-        roleCountAfter.ShouldBe(roleCountBefore);
+        // Concurrency stamps only move on an update, so equality is "no write" — not merely
+        // "same values".
+        after.ShouldBe(before);
     }
 
     [Fact]
@@ -80,7 +78,7 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         await using var first = Factory(connectionString);
         first.CreateClient().Dispose();
-        var (tokenBefore, _, _) = await SnapshotAsync(first.Services);
+        var before = await SnapshotAsync(first.Services);
 
         await using var second = Factory(
             connectionString,
@@ -100,8 +98,55 @@ public sealed class SeedingTests(AuthAppFixture app)
             await applications.GetDisplayNameAsync(client, TestContext.Current.CancellationToken)
         ).ShouldBe("Renamed client");
 
-        var (tokenAfter, _, _) = await SnapshotAsync(second.Services);
-        tokenAfter.ShouldNotBe(tokenBefore);
+        var after = await SnapshotAsync(second.Services);
+        after.ClientConcurrencyToken.ShouldNotBe(before.ClientConcurrencyToken);
+    }
+
+    // Config is the source of truth for a declared account: roles sync exactly, a declared
+    // password applies, and an absent password is no opinion rather than "remove it".
+    [Fact]
+    public async Task ChangedUserConfig_ReconcilesRolesAndDeclaredPassword()
+    {
+        var connectionString = await app.CreateDatabaseAsync("seed_user_reconcile");
+
+        await using var first = Factory(connectionString);
+        first.CreateClient().Dispose();
+
+        await using var second = Factory(
+            connectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Users:0:Password"] = AuthAppFixture.DefaultPassword,
+                ["Seed:Users:0:Roles:1"] = AuthRoles.Admin,
+            }
+        );
+        second.CreateClient().Dispose();
+
+        await using (var scope = second.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
+            admin.ShouldNotBeNull();
+            (await users.CheckPasswordAsync(admin, AuthAppFixture.DefaultPassword)).ShouldBeTrue(
+                "the declared password should now be usable"
+            );
+            (await users.IsInRoleAsync(admin, AuthRoles.Admin)).ShouldBeTrue();
+        }
+
+        // Back to the original config: the extra role goes, but the password stays — config
+        // no longer declares one, and "no opinion" must never strip a usable credential.
+        await using var third = Factory(connectionString);
+        third.CreateClient().Dispose();
+
+        await using (var scope = third.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
+            admin.ShouldNotBeNull();
+            (await users.IsInRoleAsync(admin, AuthRoles.Admin)).ShouldBeFalse();
+            (await users.IsInRoleAsync(admin, AuthRoles.GlobalAdmin)).ShouldBeTrue();
+            (await users.CheckPasswordAsync(admin, AuthAppFixture.DefaultPassword)).ShouldBeTrue();
+        }
     }
 
     [Fact]
@@ -208,6 +253,7 @@ public sealed class SeedingTests(AuthAppFixture app)
     private static async Task<(
         string ClientConcurrencyToken,
         Guid AdminId,
+        string AdminConcurrencyStamp,
         int RoleCount
     )> SnapshotAsync(IServiceProvider services)
     {
@@ -220,12 +266,17 @@ public sealed class SeedingTests(AuthAppFixture app)
             .Select(application => application.ConcurrencyToken)
             .SingleAsync();
 
-        var adminId = await context
+        var admin = await context
             .Set<ApplicationUser>()
             .Where(user => user.Email == AuthAppFixture.AdminEmail)
-            .Select(user => user.Id)
+            .Select(user => new { user.Id, user.ConcurrencyStamp })
             .SingleAsync();
 
-        return (token!, adminId, await context.Set<ApplicationRole>().CountAsync());
+        return (
+            token!,
+            admin.Id,
+            admin.ConcurrencyStamp!,
+            await context.Set<ApplicationRole>().CountAsync()
+        );
     }
 }

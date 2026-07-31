@@ -39,7 +39,7 @@ the global admin), then run **Auth → Decode Access Token** and read the claims
 | --- | --- | --- |
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
-| `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (create-only or real-drift reconcile); off is the escape hatch for an organisation managing clients out of band. |
+| `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
 | `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential` + secret, redirect URIs, scopes. What a client may *do* is fixed in code; see Seeding. |
 | `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
@@ -146,8 +146,7 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 
 Architecture §3.4's model, in full: one always-on-by-default `Database:Seed` switch over one safe
 pass in `AuthSeeder`. What makes always-on safe is that every account is config-declared — no
-environment receives anything it didn't declare — and every write is create-only or a real-drift
-reconcile.
+environment receives anything it didn't declare — and writes happen only on real drift.
 
 **Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user`) and
 the API scopes (`api.read`, `api.write`, resource `api`). These are fixed in code — a role that
@@ -174,13 +173,15 @@ forgot-password flow once account flows exist (step 8) — only the address is c
 Development supplies passwords directly (one convenience account per role), because convenience
 is the entire point there.
 
-**Write policy is declared per item.** Everything is ensured by natural key — client id, scope
-name, role name, email — never by "is the table empty". Clients and scopes **reconcile**: the
-descriptor is diffed against what's stored (the secret through `ValidateClientSecretAsync`, since
-it's stored hashed), so an unchanged item is never rewritten and an out-of-band edit survives
-reboots until config really changes. Users are **create-only**: seeding never resets a password a
-human may have changed, and recovery for a lost admin is pointing `Seed:Admin:Email` at a new
-address. Seeding never deletes.
+**Everything reconciles on real drift.** Ensured by natural key — client id, scope name, role
+name, email — never by "is the table empty", and config is the source of truth for what it
+declares: a changed redirect URI, display name or scope list updates the stored client on the
+next boot (the secret compared through `ValidateClientSecretAsync`, since it's stored hashed),
+and a declared account's roles sync exactly to config. An unchanged item is never rewritten. The
+one carve-out is **passwords, which reconcile only where config declares one** — an absent
+password is "no opinion", never "remove it", so production, which declares addresses alone,
+can never reset a password a human set through the reset flow. Accounts config doesn't declare
+are never touched, and seeding never deletes.
 
 **Mechanics.** `DatabaseInitializer` runs in `IHostedLifecycleService.StartingAsync` — before
 Kestrel binds, so nothing serves mid-seed. Concurrent instances are serialized by a

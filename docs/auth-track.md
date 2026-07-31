@@ -114,8 +114,8 @@ the flow.
 
 **Lands:** plan §3.4 in full — `Database:Seed` as a single always-on-by-default switch over one
 safe pass: roles and scopes materialized from code, OIDC clients and every account from config,
-ensure-by-natural-key, create-only vs reconcile declared per item, the session-scoped advisory
-lock, and seeding completing before the app serves.
+ensure-by-natural-key, reconcile-on-real-drift (passwords only where config declares one), the
+session-scoped advisory lock, and seeding completing before the app serves.
 
 **Proves:** a fresh database plus `compose up` yields working clients and accounts; a second boot
 writes nothing; a seed config in which nobody can administrate fails startup rather than obeying.
@@ -319,8 +319,9 @@ compose profile rather than running always-on.
   deploys because the row already existed is the worse failure. The descriptor diff limits writes
   to real changes (the secret compared through `ValidateClientSecretAsync`), seeding never
   deletes, and `Database:Seed` off remains the escape hatch for an organisation managing clients
-  out of band. Users are the opposite call — create-only, never resetting a password a human may
-  have changed.
+  out of band. Users reconcile too — config owns a declared account's roles — with one carve-out:
+  a password reconciles only where config declares one, so production, which declares addresses
+  alone, never resets a password a human set through the reset flow.
 - **Consent screen — resolved in step 4: not used** (architecture D17). Every v1 client is
   first-party and registered with implicit consent, and the authorization endpoint refuses any
   other registration — so onboarding a third-party client reopens the decision rather than

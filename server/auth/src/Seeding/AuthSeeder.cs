@@ -8,10 +8,11 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace MyStack.Auth.Seeding;
 
 // Every item is ensured by its natural key — client id, scope name, role name, email — never by
-// "is the table empty", so an item added to the list later still seeds (architecture §3.4). The
-// write policy is declared per item: clients and scopes reconcile (config/code win on real drift,
-// an unchanged item is never rewritten), users are create-only (never reset a password a human
-// may have changed). Seeding never deletes.
+// "is the table empty", so an item added to the list later still seeds (architecture §3.4).
+// Everything reconciles: config/code win on real drift, an unchanged item is never rewritten.
+// The one nuance is passwords, which reconcile only where config declares one — production
+// declares addresses alone, so a password a human set through the reset flow is never touched
+// there. Seeding never deletes rows, and never touches accounts config doesn't declare.
 internal sealed partial class AuthSeeder(
     RoleManager<ApplicationRole> roles,
     UserManager<ApplicationUser> users,
@@ -57,7 +58,7 @@ internal sealed partial class AuthSeeder(
 
         foreach (var user in options.Value.Users)
         {
-            await EnsureUserAsync(user);
+            await ReconcileUserAsync(user);
         }
     }
 
@@ -128,7 +129,7 @@ internal sealed partial class AuthSeeder(
         }
     }
 
-    private async Task EnsureUserAsync(SeedUser seed)
+    private async Task ReconcileUserAsync(SeedUser seed)
     {
         if (string.IsNullOrWhiteSpace(seed.Email))
         {
@@ -147,11 +148,71 @@ internal sealed partial class AuthSeeder(
             }
         }
 
-        if (await users.FindByEmailAsync(seed.Email) is not null)
+        var existing = await users.FindByEmailAsync(seed.Email);
+        if (existing is null)
         {
+            await CreateUserAsync(seed);
             return;
         }
 
+        var changed = false;
+
+        // Config owns a declared account's memberships, exactly — a role granted out of band to
+        // a *seeded* user does not survive a boot. Accounts config doesn't declare are never
+        // touched.
+        var currentRoles = await users.GetRolesAsync(existing);
+        var missingRoles = seed.Roles.Except(currentRoles, StringComparer.Ordinal).ToList();
+        var extraRoles = currentRoles.Except(seed.Roles, StringComparer.Ordinal).ToList();
+        if (missingRoles.Count > 0)
+        {
+            ThrowIfFailed(
+                await users.AddToRolesAsync(existing, missingRoles),
+                $"user '{seed.Email}'"
+            );
+            changed = true;
+        }
+
+        if (extraRoles.Count > 0)
+        {
+            ThrowIfFailed(
+                await users.RemoveFromRolesAsync(existing, extraRoles),
+                $"user '{seed.Email}'"
+            );
+            changed = true;
+        }
+
+        // A declared password reconciles; no declared password is no opinion, not "remove it" —
+        // production declares addresses alone, so a password a human set through the reset flow
+        // is never touched there.
+        if (
+            seed.Password is { Length: > 0 } password
+            && !await users.CheckPasswordAsync(existing, password)
+        )
+        {
+            if (await users.HasPasswordAsync(existing))
+            {
+                ThrowIfFailed(await users.RemovePasswordAsync(existing), $"user '{seed.Email}'");
+            }
+
+            ThrowIfFailed(await users.AddPasswordAsync(existing, password), $"user '{seed.Email}'");
+            changed = true;
+        }
+
+        if (!existing.EmailConfirmed)
+        {
+            existing.EmailConfirmed = true;
+            ThrowIfFailed(await users.UpdateAsync(existing), $"user '{seed.Email}'");
+            changed = true;
+        }
+
+        if (changed)
+        {
+            LogUserReconciled(logger, seed.Email);
+        }
+    }
+
+    private async Task CreateUserAsync(SeedUser seed)
+    {
         var user = new ApplicationUser
         {
             UserName = seed.Email,
@@ -161,16 +222,16 @@ internal sealed partial class AuthSeeder(
 
         // Without a configured password the account has no usable one: activation goes through
         // the ordinary forgot-password flow, so production never carries a password in
-        // configuration. Recovery for a lost account is declaring a new address.
+        // configuration.
         ThrowIfFailed(
             seed.Password is { Length: > 0 } password
                 ? await users.CreateAsync(user, password)
                 : await users.CreateAsync(user),
             $"user '{seed.Email}'"
         );
-        foreach (var role in seed.Roles)
+        if (seed.Roles.Count > 0)
         {
-            ThrowIfFailed(await users.AddToRoleAsync(user, role), $"user '{seed.Email}'");
+            ThrowIfFailed(await users.AddToRolesAsync(user, seed.Roles), $"user '{seed.Email}'");
         }
 
         LogUserCreated(logger, seed.Email);
@@ -341,4 +402,7 @@ internal sealed partial class AuthSeeder(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Created seed user {Email}.")]
     private static partial void LogUserCreated(ILogger logger, string email);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reconciled seed user {Email}.")]
+    private static partial void LogUserReconciled(ILogger logger, string email);
 }
