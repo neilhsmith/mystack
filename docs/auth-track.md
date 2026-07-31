@@ -338,14 +338,14 @@ compose profile rather than running always-on.
   drives the real code + PKCE dance from a pre-request script — one click, credentials from env
   vars, no browser — so the friction the ban imposed is essentially gone; the finalize-pass
   decision remains, but the default is now to keep the ban.
-- **Extract the wire vocabulary into `server/shared/MyStack.Auth.Contracts` — decided
-  2026-07-31, lands as its own PR right after step 10 merges.** The shared-library rule's intent
-  (per the rebuild's author): remove confusing unused tooling, not forbid structure — names both
-  sides of the wire must spell identically belong in a shared contract, the way `SendEmail` does.
-  The lib carries exactly `AuthRoles` (auth seeds and mints them; every resource server keys its
+- **Extract the wire vocabulary into `server/shared/MyStack.Auth.Contracts` — resolved: landed
+  immediately after step 10.** The shared-library rule's intent (per the rebuild's author):
+  remove confusing unused tooling, not forbid structure — names both sides of the wire must
+  spell identically belong in a shared contract, the way `SendEmail` does. The lib carries
+  exactly `AuthRoles` (auth seeds and mints them; every resource server keys its
   role→permission map off them) and `AuthClaims` (`perm`/`perm_deny` — every resource server
   reads them for the §3.1 arithmetic), moved out of `server/auth`. Deliberately excluded:
   `ApiScopes` — scopes are per-resource vocabulary (a future `billing.read` belongs to billing),
   so each resource declares its own scope constants and auth keeps its copy for
-  registration/seeding/audience mapping; two spellings per resource, never N. CLAUDE.md's
-  shared-lib paragraph and architecture's inventory are rewritten in the same PR.
+  registration/seeding/audience mapping; two spellings per resource, never N. Architecture §2's
+  shared-library test now reads "wire vocabulary qualifies, behavior doesn't."

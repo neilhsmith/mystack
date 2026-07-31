@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MyStack.Auth.Contracts;
 using MyStack.Auth.Data;
 using OpenIddict.Abstractions;
 using OpenIddict.EntityFrameworkCore.Models;

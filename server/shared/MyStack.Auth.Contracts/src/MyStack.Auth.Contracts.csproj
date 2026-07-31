@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The wire vocabulary auth publishes — names every app must spell identically. Constants
+       only, deliberately: behavior, policies and DTOs stay local to each app. -->
+</Project>

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using MyStack.Auth.Contracts;
 using MyStack.Auth.Data;
 using MyStack.Auth.Oidc;
 using OpenIddict.Abstractions;

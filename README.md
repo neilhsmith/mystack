@@ -31,7 +31,9 @@ and the account flows: register + email confirmation, forgot/reset password, cha
 notification, every email published atomically through the EF outbox and delivered by the
 worker, anti-enumeration throughout — plus permission overrides, minted into access-token
 claims on every issuance, and the wider token surface: userinfo, the client-credentials grant
-for machine clients, and introspection for confidential callers.
+for machine clients, and introspection for confidential callers — with the role and
+permission-claim names shared through `server/shared/MyStack.Auth.Contracts`, one spelling for
+every server.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 
