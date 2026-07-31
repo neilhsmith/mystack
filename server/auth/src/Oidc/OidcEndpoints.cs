@@ -26,6 +26,7 @@ internal static class OidcEndpoints
         HttpContext context,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
+        AuthDbContext database,
         IOpenIddictApplicationManager applicationManager
     )
     {
@@ -74,7 +75,12 @@ internal static class OidcEndpoints
             );
         }
 
-        var principal = await TokenPrincipals.CreateAsync(signInManager, user, request.GetScopes());
+        var principal = await TokenPrincipals.CreateAsync(
+            signInManager,
+            database,
+            user,
+            request.GetScopes()
+        );
 
         return Results.SignIn(
             principal,
@@ -86,7 +92,8 @@ internal static class OidcEndpoints
     private static async Task<IResult> ExchangeAsync(
         HttpContext context,
         UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager
+        SignInManager<ApplicationUser> signInManager,
+        AuthDbContext database
     )
     {
         var request =
@@ -113,10 +120,12 @@ internal static class OidcEndpoints
             return Forbid(Errors.InvalidGrant, "The token is no longer valid.");
         }
 
-        // Rebuilt from the store rather than copied from the incoming token, so role and email
-        // changes take effect on the next refresh instead of surviving to the token's horizon.
+        // Rebuilt from the store rather than copied from the incoming token, so role, email and
+        // override changes take effect on the next refresh instead of surviving to the token's
+        // horizon.
         var principal = await TokenPrincipals.CreateAsync(
             signInManager,
+            database,
             user,
             result.Principal!.GetScopes()
         );

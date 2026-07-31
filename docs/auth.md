@@ -76,6 +76,12 @@ confirmation/reset tokens and the cookies. Persisting them here (with a pinned a
 since the default derives from the content-root path) is what keeps an emailed link valid across
 restarts, replicas and deploy-path changes.
 
+`permission_overrides` holds the per-user grant/deny rows minted into tokens (see Permission
+overrides): subject, permission string, kind (stored as text, `Grant` or `Deny`), an optional
+expiry, and a created timestamp. One row per (user, permission) — a simultaneous grant and deny
+is a contradiction the unique index refuses rather than an arithmetic the API resolves — and
+rows cascade away with their user.
+
 Keys are **application-generated version 7 UUIDs**. The timestamp in the leading bits means
 Postgres, which orders `uuid` by its canonical byte order, keeps appending to the primary key index
 instead of fragmenting it. Generating them in the entity rather than the database also means the
@@ -120,8 +126,9 @@ re-validates the user against the store on each exchange, so role and email chan
 the next refresh rather than surviving to the token's horizon.
 
 **Claim destinations are deny-by-default.** `email`, `role` and `name` reach the access token —
-plus the identity token when their scope was granted; the `perm`/`perm_deny` shape (overrides,
-auth-track step 9) is declared access-token-only; anything unlisted — Identity's security stamp,
+plus the identity token when their scope was granted; `perm` and `perm_deny` (see Permission
+overrides) are access-token-only — an identity token describes who the user is, never what they
+may do; anything unlisted — Identity's security stamp,
 concretely — reaches no token at all, which the flow test proves. A token granted an `api.*` scope
 carries `aud: api`. Access tokens are signed but **not encrypted** JWTs: `server/api` validates
 them against the discovery document rather than sharing auth's key material.
@@ -139,6 +146,30 @@ future third-party client forces the decision to be remade rather than silently 
 `bruno` in `appsettings.Development.json`, the test suite declares its client the same way, and
 every one of them takes the only shape the seeder can produce — authorization code + PKCE +
 refresh, implicit consent, no exceptions.
+
+## Permission overrides
+
+Architecture §3.1's exception mechanism: a role grants a user's permissions in bulk, an override
+row grants one the roles don't carry or denies one they do. Every token issuance — the authorize
+passthrough and every refresh alike — reads the subject's live rows and mints them as `perm`
+(grants) and `perm_deny` (denials) claims, so the API's
+`effective = expand(roles) ∪ granted − denied` stays a pure function of the token.
+
+- **The strings are opaque here.** Auth stores and mints them verbatim; `server/api` owns the
+  permission catalog and the arithmetic. A typo'd override is silently inert — the admin console
+  picking from the API's catalog is what will prevent that.
+- **Expiry is enforced at minting.** A row past its `ExpiresAt` simply stops producing its claim;
+  nothing deletes it, no job runs. The grant lives at most as long as the last token minted
+  before the deadline — which bounds every override change, expiry and removal included, by
+  `Oidc:AccessTokenLifetime` (15 minutes). The immediate kill switch is revoking the user's
+  tokens, same as any credential event.
+- **No management surface yet.** Rows are written by the admin console (post-v1, architecture
+  §3.2's picker) — today they enter through SQL or tests. Nothing reads the claims either until
+  `server/api` exists; the minting is built now because retrofitting it later would reopen token
+  generation, the most security-sensitive code here.
+- **The shape is deliberately reusable.** Impersonation's user-granted access window
+  (architecture §3.2) is designed as a sibling row — subject, expiry, audit trail — so building
+  it later extends this pattern rather than inventing a new one.
 
 ## The sign-in page
 

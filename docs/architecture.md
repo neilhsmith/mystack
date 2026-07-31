@@ -838,7 +838,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       notification, anti-enumeration throughout, every email through the EF outbox to the worker
 - [ ] **Design + finalize pass** — every rendered screen designed rather than scaffolded, walked
       through end to end, declared done (§3)
-- [ ] **Permission override store** — grant/deny rows with `ExpiresAt`, minted into token claims (§3.1)
+- [x] **Permission override store** — grant/deny rows with `ExpiresAt`, minted into token claims (§3.1)
 - [ ] **Impersonation grant** — token exchange, `act` claim, read-only scope, consent gate, audit (§3.2)
 
 ### server/api
