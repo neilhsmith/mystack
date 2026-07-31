@@ -1,23 +1,22 @@
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using MyStack.Auth.Data;
-using OpenIddict.Abstractions;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
-using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace MyStack.Auth.Tests;
 
 public sealed class AuthAppFixture : IAsyncLifetime
 {
-    // The manually registered client auth-track step 4 calls for: public + PKCE, implicit
-    // consent, no secret — the same shape the web BFF's registration will take.
+    // The seeded public + PKCE client every flow test drives, and the seeded global admin —
+    // declared in AuthApplicationFactory's seed configuration, the same way every environment's
+    // clients and accounts are.
     public const string ClientId = "test-client";
     public const string RedirectUri = "http://localhost/callback";
     public const string PostLogoutRedirectUri = "http://localhost/signed-out";
+    public const string AdminEmail = "admin@mystack.test";
     public const string DefaultPassword = "a perfectly adequate passphrase";
 
     // The images compose runs, so the migration and the broker topology are proven against what
@@ -38,6 +37,10 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
     public RecordingLoggerProvider Logs { get; } = new();
 
+    public string DatabaseConnectionString => database.GetConnectionString();
+
+    public string BrokerConnectionString => broker.GetConnectionString();
+
     /// <summary>
     /// A client that keeps cookies and surfaces redirects instead of following them — the shape
     /// every OAuth flow test needs, isolated per call so sessions don't bleed between tests.
@@ -46,6 +49,23 @@ public sealed class AuthAppFixture : IAsyncLifetime
         application!.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }
         );
+
+    /// <summary>
+    /// A fresh database on the shared container, for tests that boot their own hosts — seeding's
+    /// boot-level behavior must not mutate the database every other test shares.
+    /// </summary>
+    public async Task<string> CreateDatabaseAsync(string name)
+    {
+        await using var connection = new NpgsqlConnection(database.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", connection);
+        await command.ExecuteNonQueryAsync();
+
+        return new NpgsqlConnectionStringBuilder(database.GetConnectionString())
+        {
+            Database = name,
+        }.ConnectionString;
+    }
 
     public async Task<ApplicationUser> CreateUserAsync(
         string email,
@@ -90,10 +110,8 @@ public sealed class AuthAppFixture : IAsyncLifetime
             Logs
         );
 
-        // CreateClient is what builds the host, so the migration runs here.
+        // CreateClient is what builds the host, so the migration and the seed run here.
         Client = application.CreateClient();
-
-        await RegisterTestClientAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -109,41 +127,6 @@ public sealed class AuthAppFixture : IAsyncLifetime
         await broker.DisposeAsync();
     }
 
-    private async Task RegisterTestClientAsync()
-    {
-        await using var scope = Services.CreateAsyncScope();
-        var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-
-        await manager.CreateAsync(
-            new OpenIddictApplicationDescriptor
-            {
-                ClientId = ClientId,
-                ClientType = ClientTypes.Public,
-                ConsentType = ConsentTypes.Implicit,
-                DisplayName = "Test client",
-                RedirectUris = { new Uri(RedirectUri) },
-                PostLogoutRedirectUris = { new Uri(PostLogoutRedirectUri) },
-                Permissions =
-                {
-                    Permissions.Endpoints.Authorization,
-                    Permissions.Endpoints.Token,
-                    Permissions.Endpoints.EndSession,
-                    Permissions.Endpoints.Revocation,
-                    Permissions.GrantTypes.AuthorizationCode,
-                    Permissions.GrantTypes.RefreshToken,
-                    Permissions.ResponseTypes.Code,
-                    Permissions.Scopes.Email,
-                    Permissions.Scopes.Profile,
-                    Permissions.Scopes.Roles,
-                    Permissions.Prefixes.Scope + "api.read",
-                    Permissions.Prefixes.Scope + "api.write",
-                },
-                Requirements = { Requirements.Features.ProofKeyForCodeExchange },
-            },
-            TestContext.Current.CancellationToken
-        );
-    }
-
     private static void ThrowIfFailed(IdentityResult result)
     {
         if (!result.Succeeded)
@@ -151,35 +134,6 @@ public sealed class AuthAppFixture : IAsyncLifetime
             throw new InvalidOperationException(
                 string.Join("; ", result.Errors.Select(error => error.Description))
             );
-        }
-    }
-
-    private sealed class AuthApplicationFactory(
-        string connectionString,
-        string brokerConnectionString,
-        RecordingLoggerProvider logs
-    ) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            // Not "Development": that would load appsettings.Development.json and hand the host a
-            // working connection string to the developer's compose database, so a test whose own
-            // configuration never arrived would still pass — against the wrong database.
-            builder.UseEnvironment("Testing");
-
-            // UseSetting, not ConfigureAppConfiguration. Under the minimal hosting model the
-            // factory runs Program's own Main and can only reach its configuration through the
-            // args it passes in — UseSetting becomes `--key=value`, while
-            // ConfigureAppConfiguration delegates are never invoked at all.
-            builder.UseSetting("ConnectionStrings:AuthDb", connectionString);
-            builder.UseSetting("ConnectionStrings:MessageBroker", brokerConnectionString);
-            builder.UseSetting("Database:Migrate", "true");
-
-            // One immediate retry: a retry-then-dead-letter sequence is provable in seconds
-            // instead of the production cooldowns' minutes.
-            builder.UseSetting("Messaging:RetryCooldownsInSeconds:0", "0");
-
-            builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs));
         }
     }
 }

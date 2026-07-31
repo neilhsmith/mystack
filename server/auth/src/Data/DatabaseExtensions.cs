@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MyStack.Auth.Seeding;
 
 namespace MyStack.Auth.Data;
 
@@ -6,11 +7,10 @@ internal static class DatabaseExtensions
 {
     public const string ConnectionStringName = "AuthDb";
 
-    public static IServiceCollection AddAuthDatabase(
-        this IServiceCollection services,
-        IConfiguration configuration
-    )
+    public static WebApplicationBuilder AddAuthDatabase(this WebApplicationBuilder builder)
     {
+        var configuration = builder.Configuration;
+
         var connectionString =
             configuration.GetConnectionString(ConnectionStringName)
             // Failing to boot beats booting against the wrong database, and a fallback value here
@@ -19,11 +19,14 @@ internal static class DatabaseExtensions
                 $"ConnectionStrings:{ConnectionStringName} is not configured."
             );
 
-        services
-            .AddOptions<DatabaseOptions>()
+        builder
+            .Services.AddOptions<DatabaseOptions>()
             .Bind(configuration.GetSection(DatabaseOptions.SectionName));
+        builder
+            .Services.AddOptions<SeedOptions>()
+            .Bind(configuration.GetSection(SeedOptions.SectionName));
 
-        services.AddDbContext<AuthDbContext>(options =>
+        builder.Services.AddDbContext<AuthDbContext>(options =>
             options
                 .UseNpgsql(
                     connectionString,
@@ -36,8 +39,9 @@ internal static class DatabaseExtensions
                 .UseSnakeCaseNamingConvention()
         );
 
-        services.AddHostedService<DatabaseMigrator>();
+        builder.Services.AddScoped<AuthSeeder>();
+        builder.Services.AddHostedService<DatabaseInitializer>();
 
-        return services;
+        return builder;
     }
 }

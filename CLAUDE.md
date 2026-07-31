@@ -14,8 +14,10 @@ authorization code + PKCE, refresh tokens, the sign-in page, and the `auth.sign_
 `auth.oauth.grants` counters ([docs/auth.md](docs/auth.md)) — and messaging:
 `server/shared/MyStack.Messaging` (Wolverine over RabbitMQ, per-app queues and `wolverine_<app>`
 envelope schemas, retry→dead-letter policy) plus the `server/worker` deployable, with auth's daily
-token-prune flowing through the broker. No seeding, no account flows —
-[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+token-prune flowing through the broker — and seeding: one safe always-on `Database:Seed` pass,
+roles/scopes from code, clients + accounts from config, advisory-locked seed-before-serve, plus
+the `bruno/` collection driving the PKCE flow against the seeded client.
+No account flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
 
@@ -42,7 +44,7 @@ is closed. Everything else starts duplicated.
 dotnet build server/MyStack.slnx     # build
 dotnet test server/MyStack.slnx      # test — needs Docker; the suites run real containers
 dotnet csharpier format .            # format; CI runs `csharpier check .`
-dotnet run --project server/auth/src # auth on :5100, migrating compose Postgres on the way up
+dotnet run --project server/auth/src # auth on :5100, migrating + seeding compose Postgres on the way up
 dotnet run --project server/worker/src # worker on :5200, consuming its queue
 dotnet run --project server/auth/src --launch-profile otel # ... also exporting telemetry
 docker compose up -d                 # postgres + rabbitmq (mgmt UI :15672) + mailpit

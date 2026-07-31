@@ -1,0 +1,21 @@
+auth {
+  mode: oauth2
+}
+
+auth:oauth2 {
+  grant_type: authorization_code
+  callback_url: {{callback_url}}
+  authorization_url: {{auth_url}}/connect/authorize
+  access_token_url: {{auth_url}}/connect/token
+  refresh_token_url: {{auth_url}}/connect/token
+  client_id: {{client_id}}
+  client_secret:
+  scope: openid email profile roles api.read api.write offline_access
+  state:
+  pkce: true
+  credentials_placement: body
+  token_placement: header
+  token_header_prefix: Bearer
+  auto_fetch_token: true
+  auto_refresh_token: true
+}

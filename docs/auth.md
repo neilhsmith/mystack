@@ -3,13 +3,14 @@
 The OAuth2/OIDC authorization server. It owns users, credentials, roles and permission overrides,
 and it is the only deployable that issues tokens.
 
-**What exists today is the host skeleton, telemetry, the OpenIddict server, and messaging**:
-ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
+**What exists today is the host skeleton, telemetry, the OpenIddict server, messaging, and
+seeding**: ASP.NET Core Identity over EF Core/Postgres, health checks, the security-header set,
 `MyStack.Observability` wired in, OpenIddict issuing tokens — authorization code + PKCE with
 refresh tokens, the four protocol endpoints, a functional sign-in page, request logging and the
-first domain counters — and `MyStack.Messaging` speaking Wolverine over RabbitMQ, with the daily
-token-prune flowing through the broker. There is no seeding and no account flow yet, so clients
-and users are still created by hand.
+first domain counters — `MyStack.Messaging` speaking Wolverine over RabbitMQ, with the daily
+token-prune flowing through the broker, and config-driven seeding bringing a fresh database to a
+working state before the host serves. There is no account flow yet — sign-up, confirmation and
+password reset arrive in auth-track step 8.
 [auth-track.md](auth-track.md) is the order the rest lands in; [architecture.md §7](architecture.md)
 is the inventory.
 
@@ -20,9 +21,17 @@ docker compose up -d                  # postgres + rabbitmq + mailpit
 dotnet run --project server/auth/src  # http://localhost:5100
 ```
 
-Development migrates on boot, so a fresh database needs nothing else. The protocol surface hangs
+Development migrates **and seeds** on boot, so a fresh database needs nothing else: the boot
+leaves behind the `web-bff` and `bruno` clients, the `api.read`/`api.write` scopes, the
+`globaladmin`/`admin`/`user` roles, and one account per role — `globaladmin@mystack.local`,
+`admin@mystack.local` and `user@mystack.local`, all `Devpass!word123`. The protocol surface hangs
 off `/.well-known/openid-configuration`; the sign-in page is `/signin`. The broker's queues live
 in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
+
+The committed [Bruno](https://www.usebruno.com/) collection in `bruno/` drives the real
+authorization-code + PKCE dance against the seeded `bruno` client: open the folder in Bruno,
+pick the **Local** environment, use the collection's OAuth2 settings to fetch a token (sign in as
+the global admin), then run **Auth → Decode Access Token** and read the claims off the console.
 
 ## Configuration
 
@@ -30,6 +39,9 @@ in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 | --- | --- | --- |
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
+| `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
+| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential` + secret, redirect URIs, scopes. What a client may *do* is fixed in code; see Seeding. |
+| `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
 | `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
@@ -109,9 +121,10 @@ hardening items).
 implicit consent; the authorization endpoint refuses a client registered any other way, so a
 future third-party client forces the decision to be remade rather than silently inheriting it.
 
-**No clients are seeded yet** — that is auth-track step 5. The test suite registers its own
-public + PKCE client through `IOpenIddictApplicationManager`; a manual local flow needs the same
-done by hand.
+**Clients come from seed configuration** (see Seeding): development declares `web-bff` and
+`bruno` in `appsettings.Development.json`, the test suite declares its client the same way, and
+every one of them takes the only shape the seeder can produce — authorization code + PKCE +
+refresh, implicit consent, no exceptions.
 
 ## The sign-in page
 
@@ -128,6 +141,54 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
   is a phishing redirect hanging off a legitimate sign-in.
 - The page runs under its own security-header policy, which differs from the default in exactly
   one directive: `form-action 'self'`.
+
+## Seeding
+
+Architecture §3.4's model, in full: one always-on-by-default `Database:Seed` switch over one safe
+pass in `AuthSeeder`. What makes always-on safe is that every account is config-declared — no
+environment receives anything it didn't declare — and writes happen only on real drift.
+
+**Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user`) and
+the API scopes (`api.read`, `api.write`, resource `api`). These are fixed in code — a role that
+exists as a row but not in the API's permission map grants nothing, so a config knob would only
+create ways to be wrong.
+
+**Config-declared:** the OIDC clients and the accounts (`Seed:Clients`, `Seed:Users`) — redirect
+URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
+*which* clients exist and where they redirect; *what a client may do* is fixed in code: every
+seeded client is authorization code + PKCE + refresh with implicit consent, and there is
+deliberately no knob for grant types, so no configuration can reintroduce the password grant.
+Confidential clients require a secret and public clients refuse one; missing required values
+throw and abort startup — failing to boot beats booting wrong, and a silently-defaulted secret
+would ship in a public repo. The client-credentials shape for machine clients arrives with
+auth-track step 10.
+
+**Seeding guarantees an administrator.** At least one declared user must carry the `globaladmin`
+role, or startup throws — the deliberate opt-out of seeded accounts is the switch, never a config
+that quietly leaves nobody able to administrate.
+
+**Accounts carry no password in production.** A `Seed:Users` entry without a `Password` is
+created with a confirmed email and no usable password; it is activated through the ordinary
+forgot-password flow once account flows exist (step 8) — only the address is configured.
+Development supplies passwords directly (one convenience account per role), because convenience
+is the entire point there.
+
+**Everything reconciles on real drift.** Ensured by natural key — client id, scope name, role
+name, email — never by "is the table empty", and config is the source of truth for what it
+declares: a changed redirect URI, display name or scope list updates the stored client on the
+next boot (the secret compared through `ValidateClientSecretAsync`, since it's stored hashed),
+and a declared account's roles sync exactly to config. An unchanged item is never rewritten. The
+one carve-out is **passwords, which reconcile only where config declares one** — an absent
+password is "no opinion", never "remove it", so production, which declares addresses alone,
+can never reset a password a human set through the reset flow. Accounts config doesn't declare
+are never touched, and seeding never deletes.
+
+**Mechanics.** `DatabaseInitializer` runs in `IHostedLifecycleService.StartingAsync` — before
+Kestrel binds, so nothing serves mid-seed. Concurrent instances are serialized by a
+session-scoped `pg_advisory_lock` on a dedicated connection, held across migrate *and* seed
+(transaction-scoped locks can't span `MigrateAsync`, which runs its own transactions). The seed
+itself runs in one transaction inside that lock, so a mid-seed failure leaves nothing
+half-written.
 
 ## Messaging
 
@@ -295,10 +356,6 @@ Recorded as they appear, resolved in the finalize pass (auth-track's final step)
   which also means **HSTS is silently not emitted** there, since the library only writes it on
   requests it sees as https. It waits for a decided deployment topology (architecture D12) because
   `UseForwardedHeaders` without a `KnownProxies` list is spoofable.
-- **`Database:Migrate` is not safe for concurrent instances.** EF Core takes no lock around
-  `MigrateAsync` here. Architecture §3.4's session-scoped advisory lock has to span migrate *and*
-  seed, so it lands with seeding; until then the switch is a development convenience and defaults
-  off.
 - **OpenIddict key material outside development is not configured.** Development uses the dev
   certificates and tests use ephemeral keys; a deployed environment has to supply signing and
   encryption credentials deliberately — a certificate from the environment, never one generated
