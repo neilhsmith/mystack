@@ -1,0 +1,18 @@
+meta {
+  name: Account
+}
+
+docs {
+  The raw HTTP anatomy of the account flows — every request auth's pages actually serve, one
+  form at a time. Each flow is a Load/Submit pair because the pages are antiforgery-protected:
+  the Load step scrapes the hidden token the Submit step must echo back.
+
+  For the human version, use a browser: "Sign In (Browser)" one level up runs the real OAuth
+  window (its sign-in page links to register), Mailpit at http://localhost:8025 is the inbox,
+  and the emailed links open the same pages these requests drive. These pairs earn their keep
+  when you want to see the wire — the generic anti-enumeration answers, the scanner-safe
+  GET-then-POST split, what a tampered or reused token does.
+
+  Vars set by scripts here (csrf, confirm_*/reset_*) are runtime-only: if Bruno restarted since
+  "Mailpit - Read Latest", run it again before a Confirm/Reset submit.
+}

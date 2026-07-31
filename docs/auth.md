@@ -31,11 +31,12 @@ in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 
 The committed [Bruno](https://www.usebruno.com/) collection in `bruno/` drives the real
 authorization-code + PKCE dance against the seeded `bruno` client: open the folder in Bruno,
-pick the **Local** environment, use the collection's OAuth2 settings to fetch a token (sign in as
-the global admin), then run **Auth → Decode Access Token** and read the claims off the console.
-**Auth → Account** walks every account flow the same way — register, read the confirmation link
-out of Mailpit, confirm, forgot/reset, sign in, change password — with the worker running so the
-emails actually deliver.
+pick the **Local** environment, and run **Auth → Sign In (Browser)** — it opens the real sign-in
+page (which links to register), exchanges the callback code, and exports `{{access_token}}`;
+**Auth → Decode Access Token** prints the claims. **Auth → Account** is the same flows one HTTP
+request at a time — register, read the confirmation link out of Mailpit, confirm, forgot/reset,
+sign in, change password — for seeing the anti-enumeration answers and token handling on the
+wire, with the worker running so the emails actually deliver.
 
 ## Configuration
 
