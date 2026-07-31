@@ -16,7 +16,10 @@ authorization code + PKCE, refresh tokens, the sign-in page, and the `auth.sign_
 envelope schemas, retry→dead-letter policy) plus the `server/worker` deployable, with auth's daily
 token-prune flowing through the broker — and seeding: one safe always-on `Database:Seed` pass,
 roles/scopes from code, clients + accounts from config, advisory-locked seed-before-serve, plus
-the `bruno/` collection driving the PKCE flow against the seeded client.
+the `bruno/` collection driving the PKCE flow against the seeded client — and email:
+`server/shared/MyStack.Email` (`IEmailSender` over SMTP/MailKit, the `SendEmail` contract, the
+renderer seam, the `email.sends` counter), with the worker delivering published `SendEmail`
+messages to Mailpit locally.
 No account flows — [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".

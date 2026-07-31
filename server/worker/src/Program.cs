@@ -1,4 +1,5 @@
 using System.Reflection;
+using MyStack.Email;
 using MyStack.Messaging;
 using MyStack.Observability;
 
@@ -18,15 +19,17 @@ builder.AddMessaging(
         // is the test host, and Wolverine would scan it instead of this app's handlers.
         options.ApplicationAssembly = typeof(Program).Assembly;
 
-        // The worker's first real handlers arrive with MyStack.Email; until then the pipeline is
-        // proven by the test suite's own message types, discovered only under Testing — the same
-        // gate auth's /debug/throw uses.
+        // The pipeline's own mechanics (retry, dead-letter) stay proven by the test suite's
+        // stand-in message types, discovered only under Testing — the same gate auth's
+        // /debug/throw uses.
         if (builder.Environment.IsEnvironment("Testing"))
         {
             options.Discovery.IncludeAssembly(Assembly.Load("MyStack.Worker.Tests"));
         }
     }
 );
+
+builder.AddEmail();
 
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks();

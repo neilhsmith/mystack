@@ -7,6 +7,8 @@
     <Project Path="auth/tests/MyStack.Auth.Tests.csproj" />
   </Folder>
   <Folder Name="/shared/">
+    <Project Path="shared/MyStack.Email/src/MyStack.Email.csproj" />
+    <Project Path="shared/MyStack.Email/tests/MyStack.Email.Tests.csproj" />
     <Project Path="shared/MyStack.Messaging/src/MyStack.Messaging.csproj" />
     <Project Path="shared/MyStack.Messaging/tests/MyStack.Messaging.Tests.csproj" />
     <Project Path="shared/MyStack.Observability/src/MyStack.Observability.csproj" />

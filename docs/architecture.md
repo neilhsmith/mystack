@@ -47,7 +47,7 @@ A reusable boilerplate for spinning up new apps.
 | ------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `server/auth` | .NET — ASP.NET Core + OpenIddict + Identity + EF | OAuth2/OIDC authorization server. Owns users, credentials, roles, and permission overrides. Issues JWTs.      |
 | `server/api`  | .NET — ASP.NET Core + FastEndpoints + EF         | Resource server. Validates JWTs from `auth`. Business logic lives in endpoints. Every error is ProblemDetails. |
-| `server/worker` | .NET — Generic host + Wolverine              | Background worker. Consumes messages from its own queue — email delivery when it lands. No HTTP surface beyond health. |
+| `server/worker` | .NET — Generic host + Wolverine              | Background worker. Consumes messages from its own queue — email delivery today. No HTTP surface beyond health. |
 | `apps/web`    | TanStack Start (React)                           | BFF + SPA. Does the OIDC dance server-side, holds tokens in an httpOnly cookie, proxies the browser to `api`. |
 | `apps/admin`  | TanStack Start (React) — **post-v1**             | Admin console: user search, role/permission administration, impersonation. Designed for, outside the v1 scope boundary. |
 
@@ -854,13 +854,16 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 - [x] **Consuming host** — health endpoints, observability, `MyStack.Messaging` wired to its own
       queue; the pipeline (publish → handle → retry → dead-letter) proven by its test suite
-- [ ] **Email delivery** — the first real consumer, landing with `MyStack.Email` (§3.3)
+- [x] **Email delivery** — `SendEmail` consumed from its queue and delivered over SMTP, proven
+      broker-to-inbox against Mailpit (§3.3)
 
 ### Shared .NET libraries
 
 - [x] **`MyStack.Messaging`** — Wolverine over RabbitMQ, per-app queues and envelope schemas,
       retry→dead-letter policy, trace propagation (§3.3)
-- [ ] **`MyStack.Email`** — `IEmailSender`, SMTP adapter, message shape, the account emails (§3.3)
+- [x] **`MyStack.Email`** — `IEmailSender`, SMTP adapter (MailKit), the `SendEmail`/`EmailMessage`
+      shape, the renderer seam, the `email.sends` counter; the account emails themselves arrive
+      with the flows (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
 
 ### apps/web
