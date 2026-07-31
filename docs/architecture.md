@@ -171,9 +171,10 @@ until it's fully understood. Nothing else in the stack is more expensive to redo
 - **Every account email is enqueued, rendered, and actually delivered** — including locally (§3.3).
   Registering in development sends a real confirmation message to a real local inbox you open in a
   browser and click. No dev-only sender, no log-scraping, no flow that only works in production.
-- **Config-driven seeding** (§3.4): roles and scopes materialized from code, OIDC clients and the
-  bootstrap admin declared in configuration, sample accounts hard-gated to development. Idempotent,
-  safe under concurrent instances, and complete before the app serves a request.
+- **Config-driven seeding** (§3.4): roles and scopes materialized from code, OIDC clients and
+  every account declared in configuration — so no environment receives anything it didn't
+  declare. Idempotent, safe under concurrent instances, and complete before the app serves a
+  request.
 
 Deferred to a later PR, not v1: change-email, delete-account, grant/connection management, external
 identity providers, MFA.
@@ -196,9 +197,9 @@ identity providers, MFA.
   so every codegen tool understands it.
 - OpenAPI export (NSwag via FastEndpoints) — the contract the TS client is generated from.
 - Security headers, health checks (`/health/live`, `/health/ready`).
-- **Seeding on the same two-tier model as `auth`** (§3.4): whatever reference data the domain can't
-  function without, plus sample rows that exist only in development. Same mechanics, written
-  separately rather than shared.
+- **Seeding on the same model as `auth`** (§3.4): whatever data the domain can't function
+  without, code-declared or from the environment's own config. Same mechanics, written separately
+  rather than shared.
 
 ### apps/web — the BFF + SPA
 
@@ -536,39 +537,46 @@ notification. Change-email and delete-account emails arrive with their features.
 
 ## 3.4 Seeding
 
-Three unrelated things share the word, and separating them is most of the design. Almost nothing
-crosses between them.
+Two unrelated things share the word, and separating them is most of the design.
 
-| Tier          | What it is                                                          | Owned by | Exists in                |
-| ------------- | ------------------------------------------------------------------- | -------- | ------------------------ |
-| **Reference** | the app cannot function without it: roles, scopes, OIDC clients, someone able to sign in | the app that owns the table | every environment, forever |
-| **Sample**    | development convenience: demo accounts, a few rows to look at        | the app  | development and e2e only |
-| **Fixture**   | one test's arrangement                                               | the test | that test                |
+| Tier        | What it is                                                          | Owned by | Exists in                |
+| ----------- | ------------------------------------------------------------------- | -------- | ------------------------ |
+| **Seed**    | the app's working state: roles, scopes, OIDC clients, the accounts each environment declares | the app that owns the table | every environment, from that environment's own config |
+| **Fixture** | one test's arrangement                                               | the test | that test                |
 
 There is no central seed store and no shared seed data. Two apps holding two unrelated datasets in
 one folder is a folder, not an abstraction — and reaching across the .NET/TypeScript boundary for it
 is exactly the coupling §2 rules out.
 
-### Two switches, not one
+### One switch, made safe
 
-The earlier framing — one `Database:Seed` that's "dev on, production off" — was **wrong**, and
-it's worth being clear why rather than quietly correcting it. Production needs the roles to exist,
-the scopes to exist, the web-BFF client to exist, and needs somebody able to log in. A single
-boolean cannot express "always do this half, never do that half."
+This decision was remade twice, and the history is the design. `mystack-old` had one `Database:Seed`
+that was "dev on, production off" — wrong, because production needs the roles, the scopes, the
+web-BFF client and somebody able to log in. The first correction split it into
+`Database:Seed:Reference` (always on) and `Database:Seed:Sample` (dev-only demo accounts, throwing
+if enabled in production), because a single boolean couldn't express "always do this half, never do
+that half" — *while the demo accounts were baked into the seeder*. Making every account
+config-declared dissolved that: development's demo users live in `appsettings.Development.json`,
+which production never loads, so no environment can receive an account it didn't declare and the
+second switch was guarding nothing. It went back to one switch — but "always on and safe", not
+"dev on, production off".
 
-| Switch                      | Default                     | Runs                                                        |
-| --------------------------- | --------------------------- | ----------------------------------------------------------- |
-| `Database:Migrate`          | on in dev, off in production | schema migration, independent of everything below            |
-| `Database:Seed:Reference`   | **on everywhere**           | roles, scopes, clients, bootstrap admin — reconciled         |
-| `Database:Seed:Sample`      | on in dev/e2e only          | demo accounts and rows                                       |
+| Switch             | Default                      | Runs                                                                    |
+| ------------------ | ---------------------------- | ----------------------------------------------------------------------- |
+| `Database:Migrate` | on in dev, off in production | schema migration, independent of seeding                                 |
+| `Database:Seed`    | **on everywhere**            | roles + scopes from code, clients + users from config — one safe pass    |
 
-`Database:Seed:Sample` **throws on startup** if it's enabled in a production environment rather than
-quietly obeying. A switch that can silently put `user@mystack.local / User!23456` into production is
-not a switch worth having.
+What makes always-on safe is the write policy below: every item is ensured by natural key,
+create-only or real-drift reconcile, so a boot that finds nothing to do writes nothing. The
+accepted residual risk is config copied wholesale between environments — mitigated by the fact
+that the values worth protecting (secrets, production URIs) come from each environment's secret
+store, not from committed files.
 
-`Database:Seed:Reference` stays a switch — not hardcoded on — because an organisation may manage
-OIDC clients out of band and want the app to keep its hands off. Defaulting it on is the right
-default; removing the escape hatch is not.
+`Database:Seed` stays a switch — not hardcoded on — because an organisation may manage OIDC
+clients out of band and want the app to keep its hands off. Defaulting it on is the right default;
+removing the escape hatch is not. And seeding **guarantees an administrator**: a config in which no
+user carries the global-admin role fails startup, because the deliberate way to opt out of seeded
+accounts is the switch, never a config that quietly leaves nobody able to administrate.
 
 ### Code-declared vs config-declared
 
@@ -584,13 +592,12 @@ default; removing the escape hatch is not.
   treating permission strings as opaque (§3.1), and two short string lists is the cheap side of it.
   It is not a shared library waiting to happen.
 
-- **Config-declared — OIDC clients and the bootstrap admin.** Redirect URIs, post-logout URIs and
-  secrets genuinely differ per environment, so they are the thing config is for. Missing required
-  values **throw and abort startup**; there is no fallback, because a silently-defaulted secret
-  seeds — and keeps re-seeding — a credential that ships in a public repo.
-
-- **Config-declared and hard-gated — sample data.** Values supplied by whoever is running the app,
-  never baked into the binary.
+- **Config-declared — OIDC clients and every seeded account.** Redirect URIs, post-logout URIs,
+  secrets and which accounts exist genuinely differ per environment, so they are the thing config
+  is for: production declares its one passwordless global admin, development declares one
+  convenience account per role. Missing required values **throw and abort startup**; there is no
+  fallback, because a silently-defaulted secret seeds — and keeps re-seeding — a credential that
+  ships in a public repo.
 
 ### Every consumer supplies its own values
 
@@ -598,7 +605,7 @@ This is what config-driven actually buys, and it's the point:
 
 ```
 appsettings.Development.json ──────────────────▶ local dev
-Seed__Sample__Users__0__Email=… (env) ─────────▶ the e2e container
+Seed__Users__0__Email=… (env) ─────────────────▶ the e2e container
 secret manager / deploy environment ───────────▶ production bootstrap
 ```
 
@@ -611,12 +618,13 @@ clone-a-template-user trick `mystack-old`'s `e2e/support/db.ts` needed in order 
 Production does **not** carry an admin password in configuration. A boilerplate that tells you to
 put one there is a boilerplate that gets that password committed.
 
-Instead: reference seeding creates the admin account with its email confirmed and **no usable
-password**, and it is activated through the ordinary forgot-password flow. That works because §3.3
-makes email real in every environment — the bootstrap path is the same path every other user takes,
-so it's already tested. Only the address is configured.
+Instead: a seeded user with no configured password is created with its email confirmed and **no
+usable password**, and it is activated through the ordinary forgot-password flow. That works
+because §3.3 makes email real in every environment — the bootstrap path is the same path every
+other user takes, so it's already tested. Production therefore declares one global-admin account
+by address alone.
 
-Development supplies a password directly, because convenience is the entire point there. If an
+Development supplies passwords directly, because convenience is the entire point there. If an
 environment genuinely needs a password-configured admin, that's a supported option and a documented
 trade, not the default.
 
@@ -817,7 +825,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 - [x] **Host skeleton** — Identity, EF + first migration, health checks, security headers
 - [x] **OpenIddict server** — config, code + PKCE, refresh, sign-in page
-- [x] **Seeding** — two-tier switches, config-declared clients + bootstrap admin, advisory lock,
+- [x] **Seeding** — one safe always-on pass, config-declared clients + accounts, advisory lock,
       seed-before-serve (§3.4)
 - [ ] **Protocol completion** — userinfo, introspection, client credentials, device flow +
       verification page, PAR
@@ -837,7 +845,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [ ] **First vertical slice** — one real entity (`Projects`/`Tasks`): CRUD, validation, paging,
       POST search, a demo job, the full authorization test matrix
 - [ ] **Permission catalog** — `GET /api/v1/permissions` returning key, resource group, description (D10)
-- [ ] **Seeding** — same two-tier model and mechanics as `auth`, written separately (§3.4)
+- [ ] **Seeding** — same config-driven model and mechanics as `auth`, written separately (§3.4)
 - [ ] **OpenAPI export** — spec generation plus a CI drift check
 
 ### server/worker
@@ -953,13 +961,15 @@ if considered up front and expensive if not.
   differing only by host. The alternative — a logging sender in dev — creates a code path that only
   runs locally and a flow that is never actually exercised until production. Mailpit costs one
   compose service and buys a clickable inbox plus a REST API the e2e suite asserts against.
-- **D16 — Seeding is config-driven and two-tier.** Reference data (roles, scopes, clients, an admin
-  who can sign in) is seeded in *every* environment including production; sample data is
-  development-only and refuses to run outside it. Values come from configuration rather than string
-  literals, so each consumer — dev, the e2e container, a deploy environment — supplies its own and
-  no seed artifact is shared between them. Roles and scopes stay code-declared because §3.1 fixes
-  them in code. The production bootstrap admin gets no password: it's activated through the normal
-  reset flow, which exists and is tested. Full design in §3.4.
+- **D16 — Seeding is config-driven, one safe always-on pass.** Roles, scopes, clients and the
+  declared accounts seed in *every* environment including production, from that environment's own
+  configuration — dev, the e2e container and a deploy environment each supply their own values, so
+  no seed artifact is shared and no environment receives an account it didn't declare. Roles and
+  scopes stay code-declared because §3.1 fixes them in code; a config leaving nobody able to
+  administrate fails startup. Accounts without a configured password get none: they're activated
+  through the normal reset flow, which exists and is tested. (Remade in step 5: the interim
+  two-switch design — a hard-gated `Sample` tier — guarded against demo accounts baked into the
+  seeder, and config-declared accounts removed the thing it guarded.) Full design in §3.4.
 - **D17 — No consent screen in v1.** Every client is first-party — the web BFF, the admin
   console, a dev client — so implicit consent is the honest description, not a shortcut. Enforced
   rather than assumed: clients are registered with `ConsentType = Implicit` and the authorization

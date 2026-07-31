@@ -25,7 +25,7 @@ Auth is closed when all of these hold:
 - [ ] Every rendered page is designed, not scaffolded, and passes an accessibility pass.
 - [x] Seeding brings a fresh database to a working state in dev and in production, from config.
 - [ ] Logs, traces and metrics come out of auth **running on its own**, with no other service up.
-- [ ] The test suite covers the token shape, anti-enumeration, the seeding tiers, and every account
+- [ ] The test suite covers the token shape, anti-enumeration, the seeding pass, and every account
       flow's failure branches.
 - [ ] `docs/auth.md` exists and describes what was actually built.
 - [ ] A production-hardening review has been done and its findings are either fixed or recorded.
@@ -112,13 +112,13 @@ the flow.
 
 ### 5. `auth` seeding
 
-**Lands:** plan §3.4 in full — `Database:Seed:Reference` and `Database:Seed:Sample` as separate
-switches, roles and scopes materialized from code, OIDC clients and the bootstrap admin from
-config, sample accounts gated to development, ensure-by-natural-key, create-only vs reconcile
-declared per item, the session-scoped advisory lock, and seeding completing before the app serves.
+**Lands:** plan §3.4 in full — `Database:Seed` as a single always-on-by-default switch over one
+safe pass: roles and scopes materialized from code, OIDC clients and every account from config,
+ensure-by-natural-key, create-only vs reconcile declared per item, the session-scoped advisory
+lock, and seeding completing before the app serves.
 
-**Proves:** a fresh database plus `compose up` yields working clients and an admin; a second boot
-writes nothing; `Database:Seed:Sample` in a production environment throws rather than obeying.
+**Proves:** a fresh database plus `compose up` yields working clients and accounts; a second boot
+writes nothing; a seed config in which nobody can administrate fails startup rather than obeying.
 
 > **Checkpoint.** Run the complete authorization-code + PKCE dance from Bruno against a seeded
 > client. Decode the token. Confirm the claims, the lifetimes, and that refresh works.
@@ -318,9 +318,9 @@ compose profile rather than running always-on.
   reconcile.** Config is the source of truth for a client, and a fixed redirect URI that never
   deploys because the row already existed is the worse failure. The descriptor diff limits writes
   to real changes (the secret compared through `ValidateClientSecretAsync`), seeding never
-  deletes, and `Database:Seed:Reference` off remains the escape hatch for an organisation
-  managing clients out of band. Users are the opposite call — create-only, never resetting a
-  password a human may have changed.
+  deletes, and `Database:Seed` off remains the escape hatch for an organisation managing clients
+  out of band. Users are the opposite call — create-only, never resetting a password a human may
+  have changed.
 - **Consent screen — resolved in step 4: not used** (architecture D17). Every v1 client is
   first-party and registered with implicit consent, and the authorization endpoint refuses any
   other registration — so onboarding a third-party client reopens the decision rather than

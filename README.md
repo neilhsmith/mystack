@@ -24,7 +24,7 @@ logging), token issuance via authorization code + PKCE with refresh tokens and a
 sign-in page, and `server/shared/MyStack.Messaging` — Wolverine over RabbitMQ with per-app queues,
 a retry-then-dead-letter policy, and the `server/worker` deployable consuming alongside auth,
 whose daily token-prune flows through the broker — plus config-driven seeding, so a fresh
-database boots to working clients, roles and a bootstrap admin, provable from the committed
+database boots to working clients, roles and accounts, provable from the committed
 `bruno/` collection ([docs/auth.md](docs/auth.md)). No account flows yet.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".

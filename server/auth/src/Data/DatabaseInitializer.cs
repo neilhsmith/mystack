@@ -27,7 +27,7 @@ internal sealed partial class DatabaseInitializer(
     public async Task StartingAsync(CancellationToken cancellationToken)
     {
         var database = options.Value;
-        if (!database.Migrate && !database.Seed.Reference && !database.Seed.Sample)
+        if (!database.Migrate && !database.Seed)
         {
             LogNothingToDo(logger);
             return;
@@ -53,25 +53,16 @@ internal sealed partial class DatabaseInitializer(
                 LogMigrationSkipped(logger);
             }
 
-            if (database.Seed.Reference || database.Seed.Sample)
+            if (database.Seed)
             {
                 // One transaction around the whole seed: a mid-seed failure leaves nothing
                 // half-written. (The migration keeps its own transaction handling.)
                 await using var transaction = await context.Database.BeginTransactionAsync(
                     cancellationToken
                 );
-                var seeder = scope.ServiceProvider.GetRequiredService<AuthSeeder>();
-
-                if (database.Seed.Reference)
-                {
-                    await seeder.SeedReferenceAsync(cancellationToken);
-                }
-
-                if (database.Seed.Sample)
-                {
-                    await seeder.SeedSampleAsync();
-                }
-
+                await scope
+                    .ServiceProvider.GetRequiredService<AuthSeeder>()
+                    .SeedAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
             }
         }
@@ -112,7 +103,7 @@ internal sealed partial class DatabaseInitializer(
 
     [LoggerMessage(
         Level = LogLevel.Information,
-        Message = "Database:Migrate and both seed switches are off — leaving the database as it is."
+        Message = "Database:Migrate and Database:Seed are off — leaving the database as it is."
     )]
     private static partial void LogNothingToDo(ILogger logger);
 

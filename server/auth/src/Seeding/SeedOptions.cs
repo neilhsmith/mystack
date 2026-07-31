@@ -1,18 +1,16 @@
 namespace MyStack.Auth.Seeding;
 
-// The config-declared half of architecture §3.4: which clients exist, where they redirect, their
-// secrets, and the accounts — the values that genuinely differ per environment. What a client may
-// *do* is fixed in code (AuthSeeder builds every descriptor); there is deliberately no knob here
-// for grant types, so no configuration can reintroduce the password grant.
+// The config-declared half of architecture §3.4: which clients and accounts exist, where the
+// clients redirect, their secrets — the values that genuinely differ per environment. What a
+// client may *do* is fixed in code (AuthSeeder builds every descriptor); there is deliberately no
+// knob here for grant types, so no configuration can reintroduce the password grant.
 internal sealed class SeedOptions
 {
     public const string SectionName = "Seed";
 
     public IList<SeedClient> Clients { get; init; } = [];
 
-    public SeedAdmin Admin { get; init; } = new();
-
-    public SeedSample Sample { get; init; } = new();
+    public IList<SeedUser> Users { get; init; } = [];
 }
 
 internal sealed class SeedClient
@@ -45,25 +43,15 @@ internal enum SeedClientType
     Confidential,
 }
 
-internal sealed class SeedAdmin
-{
-    public string? Email { get; init; }
-
-    // Development convenience only. Absent — the production posture — the admin is created with
-    // no usable password and activated through the forgot-password flow (architecture §3.4).
-    public string? Password { get; init; }
-}
-
-internal sealed class SeedSample
-{
-    public IList<SampleUser> Users { get; init; } = [];
-}
-
-internal sealed class SampleUser
+internal sealed class SeedUser
 {
     public string Email { get; init; } = "";
 
-    public string Password { get; init; } = "";
+    // Development convenience only. Absent — the production posture — the account is created
+    // with no usable password and activated through the forgot-password flow (architecture §3.4).
+    public string? Password { get; init; }
 
+    // Validated against AuthRoles.All: roles are fixed in code, and a typo here would seed a row
+    // that grants nothing.
     public IList<string> Roles { get; init; } = [];
 }

@@ -46,7 +46,8 @@ internal sealed class AuthApplicationFactory(
         builder.UseSetting("Seed:Clients:0:Scopes:2", "roles");
         builder.UseSetting("Seed:Clients:0:Scopes:3", "api.read");
         builder.UseSetting("Seed:Clients:0:Scopes:4", "api.write");
-        builder.UseSetting("Seed:Admin:Email", AuthAppFixture.AdminEmail);
+        builder.UseSetting("Seed:Users:0:Email", AuthAppFixture.AdminEmail);
+        builder.UseSetting("Seed:Users:0:Roles:0", "globaladmin");
 
         if (settings is not null)
         {

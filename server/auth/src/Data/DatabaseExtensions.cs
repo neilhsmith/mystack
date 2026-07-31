@@ -19,20 +19,6 @@ internal static class DatabaseExtensions
                 $"ConnectionStrings:{ConnectionStringName} is not configured."
             );
 
-        // Checked at registration — the earliest possible moment — rather than when seeding runs:
-        // a switch that could silently put sample credentials into production is not worth having.
-        if (
-            builder.Environment.IsProduction()
-            && configuration.GetValue<bool>($"{DatabaseOptions.SectionName}:Seed:Sample")
-        )
-        {
-            throw new InvalidOperationException(
-                "Database:Seed:Sample is enabled in a Production environment. Sample accounts "
-                    + "are a development convenience and never seed into production "
-                    + "(docs/architecture.md §3.4)."
-            );
-        }
-
         builder
             .Services.AddOptions<DatabaseOptions>()
             .Bind(configuration.GetSection(DatabaseOptions.SectionName));

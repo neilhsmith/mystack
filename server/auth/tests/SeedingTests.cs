@@ -46,7 +46,7 @@ public sealed class SeedingTests(AuthAppFixture app)
         var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
         admin.ShouldNotBeNull();
         admin.EmailConfirmed.ShouldBeTrue();
-        (await users.IsInRoleAsync(admin, AuthRoles.Admin)).ShouldBeTrue();
+        (await users.IsInRoleAsync(admin, AuthRoles.GlobalAdmin)).ShouldBeTrue();
 
         // The production posture: no password in config, so none usable — the account is
         // activated through the forgot-password flow, not a credential in a repo.
@@ -105,57 +105,58 @@ public sealed class SeedingTests(AuthAppFixture app)
     }
 
     [Fact]
-    public async Task SampleSwitch_SeedsTheDeclaredAccounts()
+    public async Task DeclaredUsers_SeedWithPasswordsAndRoles()
     {
-        var connectionString = await app.CreateDatabaseAsync("seed_sample");
+        var connectionString = await app.CreateDatabaseAsync("seed_users");
 
         await using var factory = Factory(
             connectionString,
             new Dictionary<string, string?>
             {
-                ["Database:Seed:Sample"] = "true",
-                ["Seed:Sample:Users:0:Email"] = "sample@mystack.test",
-                ["Seed:Sample:Users:0:Password"] = AuthAppFixture.DefaultPassword,
-                ["Seed:Sample:Users:0:Roles:0"] = AuthRoles.User,
+                ["Seed:Users:1:Email"] = "someone@mystack.test",
+                ["Seed:Users:1:Password"] = AuthAppFixture.DefaultPassword,
+                ["Seed:Users:1:Roles:0"] = AuthRoles.User,
             }
         );
         factory.CreateClient().Dispose();
 
         await using var scope = factory.Services.CreateAsyncScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var sample = await users.FindByEmailAsync("sample@mystack.test");
-        sample.ShouldNotBeNull();
-        sample.EmailConfirmed.ShouldBeTrue();
-        (await users.HasPasswordAsync(sample)).ShouldBeTrue();
-        (await users.IsInRoleAsync(sample, AuthRoles.User)).ShouldBeTrue();
+        var someone = await users.FindByEmailAsync("someone@mystack.test");
+        someone.ShouldNotBeNull();
+        someone.EmailConfirmed.ShouldBeTrue();
+        (await users.HasPasswordAsync(someone)).ShouldBeTrue();
+        (await users.IsInRoleAsync(someone, AuthRoles.User)).ShouldBeTrue();
+    }
+
+    // Seeding must guarantee somebody can administrate; a config without a global admin is a
+    // mistake, and the deliberate opt-out is Database:Seed off.
+    [Fact]
+    public void ConfigWithoutAGlobalAdmin_FailsStartup()
+    {
+        using var factory = Factory(
+            app.DatabaseConnectionString,
+            new Dictionary<string, string?> { ["Seed:Users:0:Roles:0"] = AuthRoles.User }
+        );
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains(AuthRoles.GlobalAdmin));
     }
 
     [Fact]
-    public void SampleSwitch_InProduction_FailsStartup()
+    public void ConfigWithAnUnknownRole_FailsStartup()
     {
-        using var factory = new AuthApplicationFactory(
+        using var factory = Factory(
             app.DatabaseConnectionString,
-            app.BrokerConnectionString,
-            settings: new Dictionary<string, string?> { ["Database:Seed:Sample"] = "true" },
-            environment: "Production"
+            new Dictionary<string, string?>
+            {
+                ["Seed:Users:1:Email"] = "typo@mystack.test",
+                ["Seed:Users:1:Roles:0"] = "superuser",
+            }
         );
 
-        var thrown = Should.Throw<Exception>(() => factory.CreateClient());
-
-        var messages = new List<string>();
-        for (
-            var current = (Exception?)thrown;
-            current is not null;
-            current = current.InnerException
-        )
-        {
-            messages.Add(current.Message);
-        }
-
-        messages.ShouldContain(
-            message => message.Contains("Database:Seed:Sample"),
-            "startup should refuse sample seeding in Production"
-        );
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains("superuser"));
     }
 
     // Two instances booting against one fresh database — the race the advisory lock exists for.
@@ -188,6 +189,21 @@ public sealed class SeedingTests(AuthAppFixture app)
         string connectionString,
         IDictionary<string, string?>? settings = null
     ) => new(connectionString, app.BrokerConnectionString, settings: settings);
+
+    private static List<string> MessagesOf(Exception thrown)
+    {
+        var messages = new List<string>();
+        for (
+            var current = (Exception?)thrown;
+            current is not null;
+            current = current.InnerException
+        )
+        {
+            messages.Add(current.Message);
+        }
+
+        return messages;
+    }
 
     private static async Task<(
         string ClientConcurrencyToken,

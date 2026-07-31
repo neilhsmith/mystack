@@ -10,8 +10,9 @@ namespace MyStack.Auth.Tests;
 
 public sealed class AuthAppFixture : IAsyncLifetime
 {
-    // The seeded public + PKCE client every flow test drives — declared in
-    // AuthApplicationFactory's seed configuration, the same way every environment's clients are.
+    // The seeded public + PKCE client every flow test drives, and the seeded global admin —
+    // declared in AuthApplicationFactory's seed configuration, the same way every environment's
+    // clients and accounts are.
     public const string ClientId = "test-client";
     public const string RedirectUri = "http://localhost/callback";
     public const string PostLogoutRedirectUri = "http://localhost/signed-out";

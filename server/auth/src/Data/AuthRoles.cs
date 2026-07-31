@@ -5,8 +5,9 @@ namespace MyStack.Auth.Data;
 // duplication is deliberate (two short string lists beat a shared library).
 public static class AuthRoles
 {
+    public const string GlobalAdmin = "globaladmin";
     public const string Admin = "admin";
     public const string User = "user";
 
-    public static readonly IReadOnlyList<string> All = [Admin, User];
+    public static readonly IReadOnlyList<string> All = [GlobalAdmin, Admin, User];
 }

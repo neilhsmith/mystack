@@ -22,16 +22,16 @@ dotnet run --project server/auth/src  # http://localhost:5100
 ```
 
 Development migrates **and seeds** on boot, so a fresh database needs nothing else: the boot
-leaves behind the `web-bff` and `bruno` clients, the `api.read`/`api.write` scopes, the `admin`
-and `user` roles, the bootstrap admin `admin@mystack.local` and the sample account
-`dev@mystack.local` (both `Devpass!word123`). The protocol surface hangs off
-`/.well-known/openid-configuration`; the sign-in page is `/signin`. The broker's queues live
+leaves behind the `web-bff` and `bruno` clients, the `api.read`/`api.write` scopes, the
+`globaladmin`/`admin`/`user` roles, and one account per role — `globaladmin@mystack.local`,
+`admin@mystack.local` and `user@mystack.local`, all `Devpass!word123`. The protocol surface hangs
+off `/.well-known/openid-configuration`; the sign-in page is `/signin`. The broker's queues live
 in RabbitMQ's management UI at `http://localhost:15672` (guest/guest).
 
 The committed [Bruno](https://www.usebruno.com/) collection in `bruno/` drives the real
 authorization-code + PKCE dance against the seeded `bruno` client: open the folder in Bruno,
 pick the **Local** environment, use the collection's OAuth2 settings to fetch a token (sign in as
-the admin), then run **Auth → Decode Access Token** and read the claims off the console.
+the global admin), then run **Auth → Decode Access Token** and read the claims off the console.
 
 ## Configuration
 
@@ -39,12 +39,9 @@ the admin), then run **Auth → Decode Access Token** and read the claims off th
 | --- | --- | --- |
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
-| `Database:Seed:Reference` | `true` | Roles, scopes, clients and the bootstrap admin — what the app cannot function without, in every environment. Off is the escape hatch for an organisation managing clients out of band. |
-| `Database:Seed:Sample` | `false` | Demo accounts. On in development; **enabling it in a Production environment fails startup** rather than obeying. |
+| `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (create-only or real-drift reconcile); off is the escape hatch for an organisation managing clients out of band. |
 | `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential` + secret, redirect URIs, scopes. What a client may *do* is fixed in code; see Seeding. |
-| `Seed:Admin:Email` | none | Required while reference seeding is on; startup throws without it. |
-| `Seed:Admin:Password` | none | Development convenience. Absent, the admin is created with no usable password and activated through the forgot-password flow. |
-| `Seed:Sample:Users` | `[]` | Email + password + roles per demo account, only read when the sample switch is on. |
+| `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
 | `Oidc:AuthorizationCodeLifetime` | `00:05:00` | One redemption, minutes to make it. |
@@ -147,29 +144,35 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 
 ## Seeding
 
-Architecture §3.4's model, in full. Two independent switches — `Database:Seed:Reference` (on
-everywhere: the app cannot function without roles, scopes, clients and someone able to sign in)
-and `Database:Seed:Sample` (demo accounts, development only, throws at startup in Production) —
-over one code path in `AuthSeeder`.
+Architecture §3.4's model, in full: one always-on-by-default `Database:Seed` switch over one safe
+pass in `AuthSeeder`. What makes always-on safe is that every account is config-declared — no
+environment receives anything it didn't declare — and every write is create-only or a real-drift
+reconcile.
 
-**Code-declared, DB-materialized:** the roles (`AuthRoles`: `admin`, `user`) and the API scopes
-(`api.read`, `api.write`, resource `api`). These are fixed in code — a role that exists as a row
-but not in the API's permission map grants nothing, so a config knob would only create ways to be
-wrong.
+**Code-declared, DB-materialized:** the roles (`AuthRoles`: `globaladmin`, `admin`, `user`) and
+the API scopes (`api.read`, `api.write`, resource `api`). These are fixed in code — a role that
+exists as a row but not in the API's permission map grants nothing, so a config knob would only
+create ways to be wrong.
 
-**Config-declared:** the OIDC clients and the bootstrap admin — redirect URIs, secrets and
-addresses genuinely differ per environment. Config decides *which* clients exist and where they
-redirect; *what a client may do* is fixed in code: every seeded client is authorization code +
-PKCE + refresh with implicit consent, and there is deliberately no knob for grant types, so no
-configuration can reintroduce the password grant. Confidential clients require a secret and
-public clients refuse one; missing required values throw and abort startup — failing to boot
-beats booting wrong, and a silently-defaulted secret would ship in a public repo. The
-client-credentials shape for machine clients arrives with auth-track step 10.
+**Config-declared:** the OIDC clients and the accounts (`Seed:Clients`, `Seed:Users`) — redirect
+URIs, secrets, addresses and which of each exist genuinely differ per environment. Config decides
+*which* clients exist and where they redirect; *what a client may do* is fixed in code: every
+seeded client is authorization code + PKCE + refresh with implicit consent, and there is
+deliberately no knob for grant types, so no configuration can reintroduce the password grant.
+Confidential clients require a secret and public clients refuse one; missing required values
+throw and abort startup — failing to boot beats booting wrong, and a silently-defaulted secret
+would ship in a public repo. The client-credentials shape for machine clients arrives with
+auth-track step 10.
 
-**The bootstrap admin carries no password in production.** Reference seeding creates it with a
-confirmed email and no usable password; it is activated through the ordinary forgot-password flow
-once account flows exist (step 8). Only the address is configured. Development supplies
-`Seed:Admin:Password` directly, because convenience is the entire point there.
+**Seeding guarantees an administrator.** At least one declared user must carry the `globaladmin`
+role, or startup throws — the deliberate opt-out of seeded accounts is the switch, never a config
+that quietly leaves nobody able to administrate.
+
+**Accounts carry no password in production.** A `Seed:Users` entry without a `Password` is
+created with a confirmed email and no usable password; it is activated through the ordinary
+forgot-password flow once account flows exist (step 8) — only the address is configured.
+Development supplies passwords directly (one convenience account per role), because convenience
+is the entire point there.
 
 **Write policy is declared per item.** Everything is ensured by natural key — client id, scope
 name, role name, email — never by "is the table empty". Clients and scopes **reconcile**: the

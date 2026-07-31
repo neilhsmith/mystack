@@ -38,19 +38,26 @@ internal sealed partial class AuthSeeder(
         ApiScopes.Write,
     ];
 
-    public async Task SeedReferenceAsync(CancellationToken cancellationToken)
+    public async Task SeedAsync(CancellationToken cancellationToken)
     {
+        if (!options.Value.Users.Any(user => user.Roles.Contains(AuthRoles.GlobalAdmin)))
+        {
+            // The §3.4 guarantee: seeding leaves somebody able to administrate. A config that
+            // can't is a mistake, not a choice — the deliberate opt-out is Database:Seed off.
+            throw new InvalidOperationException(
+                $"No Seed:Users entry carries the '{AuthRoles.GlobalAdmin}' role, so seeding "
+                    + "would leave nobody able to administrate. Declare one, or set "
+                    + "Database:Seed to false."
+            );
+        }
+
         await EnsureRolesAsync();
         await ReconcileScopesAsync(cancellationToken);
         await ReconcileClientsAsync(cancellationToken);
-        await EnsureAdminAsync();
-    }
 
-    public async Task SeedSampleAsync()
-    {
-        foreach (var sample in options.Value.Sample.Users)
+        foreach (var user in options.Value.Users)
         {
-            await EnsureSampleUserAsync(sample);
+            await EnsureUserAsync(user);
         }
     }
 
@@ -121,90 +128,52 @@ internal sealed partial class AuthSeeder(
         }
     }
 
-    private async Task EnsureAdminAsync()
+    private async Task EnsureUserAsync(SeedUser seed)
     {
-        var admin = options.Value.Admin;
-        if (string.IsNullOrWhiteSpace(admin.Email))
+        if (string.IsNullOrWhiteSpace(seed.Email))
         {
-            // No fallback address: a default admin identity baked into the binary is a credential
-            // shipped in a public repo (architecture §3.4).
-            throw new InvalidOperationException(
-                "Seed:Admin:Email is not configured. Reference seeding creates the bootstrap "
-                    + "admin and needs its address — or set Database:Seed:Reference to false."
-            );
+            throw new InvalidOperationException("Every Seed:Users entry needs an Email.");
         }
 
-        if (await users.FindByEmailAsync(admin.Email) is not null)
-        {
-            return;
-        }
-
-        var user = new ApplicationUser
-        {
-            UserName = admin.Email,
-            Email = admin.Email,
-            EmailConfirmed = true,
-        };
-
-        // Without a configured password the account has no usable one: activation goes through
-        // the ordinary forgot-password flow, so production never carries an admin password in
-        // configuration. Recovery for a lost admin is pointing Seed:Admin:Email at a new address.
-        ThrowIfFailed(
-            admin.Password is { Length: > 0 } password
-                ? await users.CreateAsync(user, password)
-                : await users.CreateAsync(user),
-            $"bootstrap admin '{admin.Email}'"
-        );
-        ThrowIfFailed(
-            await users.AddToRoleAsync(user, AuthRoles.Admin),
-            $"bootstrap admin '{admin.Email}'"
-        );
-        LogAdminCreated(logger, admin.Email);
-    }
-
-    private async Task EnsureSampleUserAsync(SampleUser sample)
-    {
-        if (string.IsNullOrWhiteSpace(sample.Email) || string.IsNullOrWhiteSpace(sample.Password))
-        {
-            throw new InvalidOperationException(
-                "Every Seed:Sample:Users entry needs an Email and a Password."
-            );
-        }
-
-        foreach (var role in sample.Roles)
+        foreach (var role in seed.Roles)
         {
             if (!AuthRoles.All.Contains(role, StringComparer.Ordinal))
             {
                 // Roles are fixed in code; a typo here would seed a row that grants nothing.
                 throw new InvalidOperationException(
-                    $"Sample user '{sample.Email}' declares unknown role '{role}'. "
+                    $"Seed user '{seed.Email}' declares unknown role '{role}'. "
                         + $"Roles are code-declared: {string.Join(", ", AuthRoles.All)}."
                 );
             }
         }
 
-        if (await users.FindByEmailAsync(sample.Email) is not null)
+        if (await users.FindByEmailAsync(seed.Email) is not null)
         {
             return;
         }
 
         var user = new ApplicationUser
         {
-            UserName = sample.Email,
-            Email = sample.Email,
+            UserName = seed.Email,
+            Email = seed.Email,
             EmailConfirmed = true,
         };
 
+        // Without a configured password the account has no usable one: activation goes through
+        // the ordinary forgot-password flow, so production never carries a password in
+        // configuration. Recovery for a lost account is declaring a new address.
         ThrowIfFailed(
-            await users.CreateAsync(user, sample.Password),
-            $"sample user '{sample.Email}'"
+            seed.Password is { Length: > 0 } password
+                ? await users.CreateAsync(user, password)
+                : await users.CreateAsync(user),
+            $"user '{seed.Email}'"
         );
-        foreach (var role in sample.Roles)
+        foreach (var role in seed.Roles)
         {
-            ThrowIfFailed(await users.AddToRoleAsync(user, role), $"sample user '{sample.Email}'");
+            ThrowIfFailed(await users.AddToRoleAsync(user, role), $"user '{seed.Email}'");
         }
 
-        LogSampleUserCreated(logger, sample.Email);
+        LogUserCreated(logger, seed.Email);
     }
 
     // The only shape a seeded client can take: authorization code + PKCE + refresh, every
@@ -370,9 +339,6 @@ internal sealed partial class AuthSeeder(
     [LoggerMessage(Level = LogLevel.Information, Message = "Reconciled client {ClientId}.")]
     private static partial void LogClientUpdated(ILogger logger, string clientId);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Created bootstrap admin {Email}.")]
-    private static partial void LogAdminCreated(ILogger logger, string email);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Created sample user {Email}.")]
-    private static partial void LogSampleUserCreated(ILogger logger, string email);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Created seed user {Email}.")]
+    private static partial void LogUserCreated(ILogger logger, string email);
 }
