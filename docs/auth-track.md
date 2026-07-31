@@ -30,14 +30,14 @@ Auth is closed when all of these hold:
 - [ ] `docs/auth.md` exists and describes what was actually built.
 - [x] A production-hardening review has been done and its findings are either fixed or recorded.
       *Done as step 13: a six-track review (protocol, identity, .NET craft, observability, tests,
-      ops) whose findings were fixed in the hardening pass, folded into step 14's scope, or
-      recorded as step 15.*
+      ops) whose findings were fixed in the hardening pass, folded into steps 14–15, or recorded
+      as step 16.*
 
 ## Deliberately out of scope
 
 Not "forgotten" — genuinely belonging elsewhere:
 
-- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 14 records that a
+- **Impersonation** — needs `apps/admin` to have any consumer (plan §3.2). Step 15 records that a
   grant-support-access endpoint is coming, which is the only thing owed now.
 - **The permission catalog** — `server/api` owns it (D10). Auth mints permission strings without
   ever interpreting them, so overrides are testable here with arbitrary values.
@@ -94,7 +94,7 @@ dashboard. This is the requirement that put this step here rather than later.
 
 **Lands:** OpenIddict server configuration; authorization, token, end-session and revocation
 endpoints; **authorization code + PKCE**; refresh tokens (`offline_access`); config-driven token
-lifetimes; a functional sign-in page (designed in step 14, not here); the claims the token carries
+lifetimes; a functional sign-in page (designed in step 15, not here); the claims the token carries
 (`sub`, `role`, `email`, and the shape `perm` / `perm_deny` will occupy).
 
 **Metrics:** `auth.sign_ins` and `auth.oauth.grants` (architecture §3's table) — the sign-in page
@@ -244,7 +244,7 @@ refuses public clients; the password grant is still absent from everything.
 ### 11. Device flow + PAR
 
 **Lands:** the **device authorization grant** — device + verification endpoints and the
-user-code verification page (functional here, designed in step 14) — for clients without a
+user-code verification page (functional here, designed in step 15) — for clients without a
 browser or keyboard; **pushed authorization requests** (PAR), with the endpoint on and a
 per-client opt-in requirement, so authorize parameters can travel the back channel instead of the
 URL.
@@ -269,7 +269,7 @@ consumer side lands with each BFF, not here.
 
 The full-stack review before the finalize pass: six parallel tracks (protocol/OpenIddict,
 identity + account flows, .NET craft, observability, tests, ops/deployability) over everything
-steps 1–12 built, every finding fixed here, folded into step 14, or recorded as step 15.
+steps 1–12 built, every finding fixed here, folded into steps 14–15, or recorded as step 16.
 
 **Lands (protocol):** PKCE accepts **S256 only** — OpenIddict's default also took `plain`, the
 one OAuth 2.1 deviation found; discovery's prompt values trimmed to the implemented `login`/
@@ -304,22 +304,48 @@ on both policies, a prune survivor (over-deletion was previously invisible), the
 browser client — the BFF's exact shape — completing the flow and introspecting its own token,
 and a theory over every misdeclared seed-client shape.
 
-### 14. Design + finalize
+### 14. Account-surface guards
+
+Everything the hardening review routed to "before design" that isn't visual, landed as one step —
+so the design pass that follows is purely design.
+
+**Lands:** the **rate limiter** — ASP.NET Core's built-in middleware, IP-partitioned fixed
+windows over the endpoints that take credentials or drive email: register, forgot-password,
+resend-confirmation, the sign-in POST, the change-password POST and `/connect/verify`.
+Anti-enumeration made probing operator-visible (the metric tags); this makes it expensive, and it
+is also the practical brake on the timing residual and the device user-code space. (The limiter's
+state is in-memory per instance — right for the single-VPS topology, revisit on replicas.) The
+**timing equalization**: a dummy password hash on the sign-in unknown-email path — today it
+returns before any PBKDF2 work, the sharpest oracle the review found — and equivalent dummy work
+on the email flows' miss paths. **`Cache-Control: no-store` on the credential-bearing pages**, so
+bfcache and history can't re-show a filled form after sign-out. The **missing pages,
+functionally**: a root landing page (`/` is the default post-sign-in target and the end-session
+fallback, and currently 404s), an error page (a browser mid-flow must never see a raw
+ProblemDetails body), status-code/404 handling, a signed-out confirmation and an access-denied
+page — functional here, designed in step 15 like every page before them. The **end-session
+confirmation**: a bare GET `/connect/endsession` with no validated `id_token_hint` currently
+signs out of every app with no confirmation — spec-tolerated, but one forced navigation should
+not end every session; a confirmation POST page closes it. And the **session-persistence
+decision**: the auth cookie is a browser-session cookie with no remember-me — decide rather than
+inherit, and if the answer is a remember-me option, its mechanics land here and its looks in
+step 15.
+
+**Proves:** 429s from every limited endpoint under hammering while the ordinary flows stay
+untouched; every new page wired and tested — the error page answering HTML accepts while API
+accepts keep ProblemDetails, `/` no longer a 404, the hint-less end-session confirming instead of
+acting; and the sign-in miss path doing hash-shaped work.
+
+### 15. Design + finalize
 
 **Lands:** every rendered page designed rather than scaffolded — sign in, register, forgot password,
-reset password, confirm email, device verification; there is no consent page (architecture
-D17) — plus the pages the hardening review found missing: a root landing page (`/` is the
-default post-sign-in target and end-session fallback, and currently 404s), an error page
-(browsers should never see a raw ProblemDetails body), status-code/404 handling, a signed-out
-confirmation, and an access-denied page. An accessibility pass over all of them. The
-**rate limiter** from the hardening list — IP-partitioned over the anonymous account pages *and*
-`/change-password` and `/connect/verify`. The timing residual's dummy-hash work (the sign-in
-unknown-email path skips the password hash entirely — the sharpest oracle). Two deliberate
-decisions to record: session persistence (the auth cookie is currently a browser-session cookie
-with no remember-me — decide, don't inherit) and whether a bare GET `/connect/endsession` with no
-`id_token_hint` should confirm before signing out. The Bruno collection committed. `docs/auth.md`
-finalized. A note recording that a grant-support-access endpoint is coming, so "auth is finished"
-doesn't quietly mean "auth is closed to impersonation" (plan §3.2's first seam).
+reset password, confirm email, device verification, and step 14's new pages (root, error, 404,
+signed-out, access-denied, the end-session confirmation); there is no consent page (architecture
+D17). The pages policy's CSP widened deliberately for the styling it now allows — `style-src
+'self'` (plus `img-src 'self'` if a logo lands), never `'unsafe-inline'`: everything comes from
+the emitted stylesheet. An accessibility pass over all of them. The Bruno collection committed.
+`docs/auth.md` finalized. A note recording that
+a grant-support-access endpoint is coming, so "auth is finished" doesn't quietly mean "auth is
+closed to impersonation" (plan §3.2's first seam).
 
 **Proves:** the full suite green, a conformance-suite run, and an end-to-end walkthrough of the
 whole project until it is genuinely understood rather than merely working.
@@ -331,7 +357,7 @@ whole project until it is genuinely understood rather than merely working.
 > future component library comes from sharing the utility classes and design tokens, consciously
 > duplicated like the role names in §3.4.
 
-### 15. Deploy prep (D12)
+### 16. Deploy prep (D12)
 
 Auth's production readiness, landing when the deployment topology (architecture D12) is decided —
 the review's recommendation is **Kamal 2** (built for exactly the architecture doc's shape:
