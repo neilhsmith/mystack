@@ -263,6 +263,7 @@ a counter with no emitter is exactly the speculative infrastructure §0 rules ou
 | `auth.email_confirmations`  | `outcome`              | account flows                 |
 | `auth.password_resets`      | `stage`, `outcome`     | account flows                 |
 | `auth.password_changes`     | `outcome`              | account flows                 |
+| `auth.logout_notifications` | `client_id`, `outcome` | back-channel logout           |
 | `wolverine-messages-sent` / `-succeeded` / `-execution-failure` / `-dead-letter-queue` | `message.type`, … | Wolverine's own meter (`Wolverine:<app>`) — not hand-written |
 | `email.sends`               | `outcome`              | `MyStack.Email`               |
 
@@ -847,7 +848,7 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       seed-before-serve (§3.4)
 - [x] **Protocol completion** — userinfo, introspection, client credentials, device flow +
       verification page, PAR
-- [ ] **Logout notifications** — back-channel logout tokens to registered clients; front-channel
+- [x] **Logout notifications** — back-channel logout tokens to registered clients; front-channel
       decided, not assumed
 - [x] **Account flows** — register, email confirmation, forgot/reset password, change password +
       notification, anti-enumeration throughout, every email through the EF outbox to the worker

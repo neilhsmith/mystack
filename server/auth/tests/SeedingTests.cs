@@ -70,6 +70,10 @@ public sealed class SeedingTests(AuthAppFixture app)
             "ept:pushed_authorization"
         );
 
+        (await applications.GetSettingsAsync(client, cancellationToken)).ShouldContainKey(
+            "mystack:backchannel_logout_uri"
+        );
+
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var admin = await users.FindByEmailAsync(AuthAppFixture.AdminEmail);
         admin.ShouldNotBeNull();
@@ -230,6 +234,75 @@ public sealed class SeedingTests(AuthAppFixture app)
 
         MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
             .ShouldContain(message => message.Contains("superuser"));
+    }
+
+    [Fact]
+    public async Task ChangedBackchannelLogoutUri_ReconcilesTheStoredClient()
+    {
+        var connectionString = await app.CreateDatabaseAsync("seed_backchannel_reconcile");
+
+        await using var first = Factory(
+            connectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:0:BackchannelLogoutUri"] = "http://localhost/old-logout",
+            }
+        );
+        first.CreateClient().Dispose();
+
+        await using var second = Factory(
+            connectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:0:BackchannelLogoutUri"] = "http://localhost/new-logout",
+            }
+        );
+        second.CreateClient().Dispose();
+
+        await using var scope = second.Services.CreateAsyncScope();
+        var applications =
+            scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        var client = await applications.FindByClientIdAsync(
+            AuthAppFixture.ClientId,
+            TestContext.Current.CancellationToken
+        );
+        client.ShouldNotBeNull();
+        (await applications.GetSettingsAsync(client, TestContext.Current.CancellationToken))[
+            "mystack:backchannel_logout_uri"
+        ]
+            .ShouldBe("http://localhost/new-logout");
+    }
+
+    // Back-channel logout is a browser-client concern: a machine client has no user session to
+    // end, a device client no server endpoint to notify.
+    [Fact]
+    public void MachineClientWithABackchannelLogoutUri_FailsStartup()
+    {
+        using var factory = Factory(
+            app.DatabaseConnectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:1:BackchannelLogoutUri"] = "http://localhost/logout",
+            }
+        );
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains("BackchannelLogoutUri"));
+    }
+
+    [Fact]
+    public void DeviceClientWithABackchannelLogoutUri_FailsStartup()
+    {
+        using var factory = Factory(
+            app.DatabaseConnectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:2:BackchannelLogoutUri"] = "http://localhost/logout",
+            }
+        );
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains("BackchannelLogoutUri"));
     }
 
     // Two instances booting against one fresh database — the race the advisory lock exists for.

@@ -30,6 +30,11 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public const string DeviceClientDisplayName = "Test device";
     public const string ParClientId = "test-par";
 
+    // A browser client whose back-channel logout URI points at a port nothing listens on, so
+    // every sign-out also proves an unreachable client blocks neither the response nor the
+    // deliveries to the reachable ones.
+    public const string UnreachableClientId = "test-unreachable";
+
     // The images compose runs, so the migration and the broker topology are proven against what
     // the stack actually uses rather than whatever `latest` happens to be.
     private readonly PostgreSqlContainer database = new PostgreSqlBuilder(
@@ -47,6 +52,12 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public IServiceProvider Services => application!.Services;
 
     public RecordingLoggerProvider Logs { get; } = new();
+
+    // The fake relying parties the seeded browser clients deliver logout tokens to —
+    // test-client's and test-par's, respectively.
+    public FakeRelyingParty RelyingParty { get; private set; } = null!;
+
+    public FakeRelyingParty SecondRelyingParty { get; private set; } = null!;
 
     public string DatabaseConnectionString => database.GetConnectionString();
 
@@ -115,10 +126,25 @@ public sealed class AuthAppFixture : IAsyncLifetime
     {
         await Task.WhenAll(database.StartAsync(), broker.StartAsync());
 
+        // Started before the host so their dynamically bound URIs can ride the seed config.
+        RelyingParty = await FakeRelyingParty.StartAsync();
+        SecondRelyingParty = await FakeRelyingParty.StartAsync();
+
         application = new AuthApplicationFactory(
             database.GetConnectionString(),
             broker.GetConnectionString(),
-            Logs
+            Logs,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:0:BackchannelLogoutUri"] = RelyingParty.LogoutUri,
+                ["Seed:Clients:3:BackchannelLogoutUri"] = SecondRelyingParty.LogoutUri,
+                // Port 9 is the discard service nothing runs, so the connection is refused
+                // immediately rather than hanging out the delivery timeout.
+                ["Seed:Clients:4:ClientId"] = UnreachableClientId,
+                ["Seed:Clients:4:Type"] = "Public",
+                ["Seed:Clients:4:RedirectUris:0"] = RedirectUri,
+                ["Seed:Clients:4:BackchannelLogoutUri"] = "http://127.0.0.1:9/backchannel-logout",
+            }
         );
 
         // CreateClient is what builds the host, so the migration and the seed run here.
@@ -136,6 +162,16 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
         await database.DisposeAsync();
         await broker.DisposeAsync();
+
+        if (RelyingParty is not null)
+        {
+            await RelyingParty.DisposeAsync();
+        }
+
+        if (SecondRelyingParty is not null)
+        {
+            await SecondRelyingParty.DisposeAsync();
+        }
     }
 
     private static void ThrowIfFailed(IdentityResult result)

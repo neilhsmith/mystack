@@ -34,6 +34,10 @@ internal sealed class SeedClient
     // and must push its parameters through /connect/par first (RFC 9126).
     public bool RequirePushedAuthorizationRequests { get; init; }
 
+    // Browser clients only: where auth POSTs this client's signed logout token when a user's
+    // session ends (OIDC Back-Channel Logout 1.0). Absent means the client is never notified.
+    public string? BackchannelLogoutUri { get; init; }
+
     // Required for a browser client, forbidden for a machine or device one.
     public IList<string> RedirectUris { get; init; } = [];
 

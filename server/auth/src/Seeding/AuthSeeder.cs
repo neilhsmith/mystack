@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using MyStack.Auth.Data;
+using MyStack.Auth.Oidc;
 using MyStack.Contracts.Api;
 using MyStack.Contracts.Auth;
 using OpenIddict.Abstractions;
@@ -313,6 +315,17 @@ internal sealed partial class AuthSeeder(
             descriptor.Requirements.Add(Requirements.Features.PushedAuthorizationRequests);
         }
 
+        if (client.BackchannelLogoutUri is { Length: > 0 } logoutUri)
+        {
+            // An application *setting* rather than a descriptor property: OpenIddict has no
+            // first-class back-channel logout, so the URI rides its extensible per-client
+            // settings bag and BackchannelLogoutNotifier reads it back at sign-out.
+            descriptor.Settings[BackchannelLogoutNotifier.SettingName] = ParseUri(
+                client.ClientId,
+                logoutUri
+            ).AbsoluteUri;
+        }
+
         if (confidential)
         {
             // Introspection demands an authenticated caller (RFC 7662), so the permission goes
@@ -356,6 +369,10 @@ internal sealed partial class AuthSeeder(
         }
 
         ThrowIfRequiresParWithoutAuthorize(client, "machine");
+        ThrowIfBackchannelLogoutUri(
+            client,
+            "no user ever signs in through a machine client, so there is no session to end"
+        );
 
         // Always confidential — the secret is the entire authentication story — and no consent
         // type: consent is a user concept, and no user ever appears in this flow.
@@ -399,6 +416,10 @@ internal sealed partial class AuthSeeder(
         }
 
         ThrowIfRequiresParWithoutAuthorize(client, "device");
+        ThrowIfBackchannelLogoutUri(
+            client,
+            "a device-flow client has no server endpoint to receive the notification"
+        );
 
         // Implicit consent even though the verification page shows an approve button: that
         // button is the flow's binding step (which account does this device become?), not a
@@ -434,6 +455,19 @@ internal sealed partial class AuthSeeder(
                 $"Client '{client.ClientId}' requires pushed authorization requests, but a "
                     + $"{shape} client never uses the authorization endpoint. Remove the "
                     + "requirement."
+            );
+        }
+    }
+
+    private static void ThrowIfBackchannelLogoutUri(SeedClient client, string reason)
+    {
+        // Back-channel logout notifies clients that established a browser session — the shapes
+        // that never do can't consume one, so declaring the URI misunderstands the flow.
+        if (!string.IsNullOrEmpty(client.BackchannelLogoutUri))
+        {
+            throw new InvalidOperationException(
+                $"Client '{client.ClientId}' declares a BackchannelLogoutUri, but {reason}. "
+                    + "Remove it."
             );
         }
     }
@@ -490,6 +524,10 @@ internal sealed partial class AuthSeeder(
                 await applications.GetRequirementsAsync(existing, cancellationToken),
                 descriptor.Requirements
             )
+            || !SettingsEqual(
+                await applications.GetSettingsAsync(existing, cancellationToken),
+                descriptor.Settings
+            )
         )
         {
             return false;
@@ -505,6 +543,13 @@ internal sealed partial class AuthSeeder(
 
     private static bool SetEquals(IEnumerable<string> stored, IEnumerable<string> wanted) =>
         stored.Order(StringComparer.Ordinal).SequenceEqual(wanted.Order(StringComparer.Ordinal));
+
+    private static bool SettingsEqual(
+        ImmutableDictionary<string, string> stored,
+        Dictionary<string, string> wanted
+    ) =>
+        stored.Count == wanted.Count
+        && wanted.All(pair => stored.TryGetValue(pair.Key, out var value) && value == pair.Value);
 
     private static Uri ParseUri(string clientId, string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri)

@@ -17,6 +17,7 @@ public sealed class AuthMetrics
     private readonly Counter<long> emailConfirmations;
     private readonly Counter<long> passwordResets;
     private readonly Counter<long> passwordChanges;
+    private readonly Counter<long> logoutNotifications;
 
     public AuthMetrics(IMeterFactory meterFactory)
     {
@@ -46,6 +47,10 @@ public sealed class AuthMetrics
             "auth.password_changes",
             description: "Signed-in password changes, by outcome."
         );
+        logoutNotifications = meter.CreateCounter<long>(
+            "auth.logout_notifications",
+            description: "Back-channel logout deliveries, by client and outcome."
+        );
     }
 
     public void SignIn(string result) =>
@@ -73,4 +78,13 @@ public sealed class AuthMetrics
 
     public void PasswordChange(string outcome) =>
         passwordChanges.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
+
+    // client_id is operator-declared seed config, never a caller-supplied string — the closed-set
+    // rule holds because only registered clients are ever notified.
+    public void LogoutNotification(string clientId, string outcome) =>
+        logoutNotifications.Add(
+            1,
+            new KeyValuePair<string, object?>("client_id", clientId),
+            new KeyValuePair<string, object?>("outcome", outcome)
+        );
 }

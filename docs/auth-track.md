@@ -18,7 +18,7 @@ Auth is closed when all of these hold:
 
 - [ ] The full authorization-code + PKCE flow works, refreshes, and signs out — driven from a
       committed Bruno collection, not from memory.
-- [ ] The protocol surface is complete and proven from a client's seat: userinfo, introspection,
+- [x] The protocol surface is complete and proven from a client's seat: userinfo, introspection,
       client credentials, the device flow, PAR, and back-channel logout, each tested.
 - [x] Every account flow works end to end **including its email**: register → confirm, forgot →
       reset, change password → notification.
