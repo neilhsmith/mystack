@@ -1,0 +1,24 @@
+meta {
+  name: Confirm Email - Submit
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{auth_url}}/confirm-email?userId={{confirm_user_id}}&token={{confirm_token}}
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  UserId: {{confirm_user_id}}
+  Token: {{confirm_token}}
+  __RequestVerificationToken: {{csrf}}
+}
+
+docs {
+  Consumes the confirmation token — the response says "Email confirmed". Run it again to see the
+  boring branch: "Already confirmed". After this the account can sign in: use the collection's
+  OAuth2 flow (any request with `auth: inherit`, e.g. Auth/Decode Access Token) with these
+  credentials.
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Resend Confirmation - Submit
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{auth_url}}/resend-confirmation
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  Email: {{account_email}}
+  __RequestVerificationToken: {{csrf}}
+}
+
+docs {
+  Same generic answer whatever the address's state; mail only actually goes out for an existing,
+  unconfirmed account. Useful when a confirmation link expired — the reissued one lands in
+  Mailpit ("Mailpit - Read Latest" picks it up).
+}

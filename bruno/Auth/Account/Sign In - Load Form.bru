@@ -1,0 +1,21 @@
+meta {
+  name: Sign In - Load Form
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{auth_url}}/signin
+  body: none
+  auth: none
+}
+
+script:post-response {
+  const match = res.body.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+  bru.setVar('csrf', match ? match[1] : '');
+}
+
+docs {
+  Change-password needs a signed-in session: this pair signs Bruno's cookie jar in as
+  {{account_email}}, separate from the collection's OAuth2 browser window.
+}

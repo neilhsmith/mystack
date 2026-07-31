@@ -28,6 +28,11 @@ internal sealed class AuthApplicationFactory(
         builder.UseSetting("ConnectionStrings:MessageBroker", brokerConnectionString);
         builder.UseSetting("Database:Migrate", "true");
 
+        // The test client's own origin, so a link parsed out of a composed email can be driven
+        // straight back against the host. UseSetting matters here: AddAccountFlows reads it
+        // eagerly during Program's registration, before ConfigureAppConfiguration layers in.
+        builder.UseSetting("Account:PublicBaseUrl", "http://localhost");
+
         // One immediate retry: a retry-then-dead-letter sequence is provable in seconds
         // instead of the production cooldowns' minutes.
         builder.UseSetting("Messaging:RetryCooldownsInSeconds:0", "0");

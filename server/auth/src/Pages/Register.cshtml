@@ -1,0 +1,42 @@
+@page "/register"
+@model MyStack.Auth.Pages.RegisterModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Create an account</title>
+</head>
+<body>
+    <main>
+        @if (Model.Registered)
+        {
+            <h1>Check your email</h1>
+            <p>If that address is valid, we've sent a confirmation email. Open it and confirm to
+                activate the account.</p>
+            <p>Nothing arrived? <a href="/resend-confirmation">Resend the confirmation</a>.</p>
+        }
+        else
+        {
+            <h1>Create an account</h1>
+            <form method="post">
+                <div asp-validation-summary="All" role="alert"></div>
+                <div>
+                    <label asp-for="Email">Email</label>
+                    <input asp-for="Email" type="email" autocomplete="username" required />
+                </div>
+                <div>
+                    <label asp-for="Password">Password</label>
+                    <input asp-for="Password" type="password" autocomplete="new-password" required />
+                </div>
+                <div>
+                    <label asp-for="ConfirmPassword">Confirm password</label>
+                    <input asp-for="ConfirmPassword" type="password" autocomplete="new-password" required />
+                </div>
+                <button type="submit">Create account</button>
+            </form>
+            <p>Already have an account? <a href="/signin">Sign in</a></p>
+        }
+    </main>
+</body>
+</html>

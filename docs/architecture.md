@@ -485,9 +485,10 @@ Properties that are load-bearing and easy to get wrong:
   own meter; the dead-letter counter is what an alert watches.
 - **The transactional outbox is the mechanism, not an option**: Wolverine persists outgoing
   envelopes in Postgres before they ride the broker, and its EF Core integration makes a
-  `SaveChanges` and a publish genuinely atomic — the account flows wire that up when "user created
-  + confirmation email published" becomes real (auth-track). Until then the durable outbox already
-  means a crash between publish and broker-ack loses nothing.
+  `SaveChanges` and a publish genuinely atomic — auth's account flows publish through
+  `IDbContextOutbox<AuthDbContext>` inside the transaction that writes the user, so "user created
+  + confirmation email published" commits together or not at all. The durable outbox also means a
+  crash between commit and broker-ack loses nothing.
 - **Trace context crosses the queue on its own.** Wolverine propagates W3C context and exposes the
   `Wolverine` activity source and a `Wolverine:<app>` meter, both subscribed by
   `MyStack.Observability` — a failed handler is traceable back to the request that published the
@@ -833,8 +834,8 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       verification page, PAR
 - [ ] **Logout notifications** — back-channel logout tokens to registered clients; front-channel
       decided, not assumed
-- [ ] **Account flows** — register, email confirmation, forgot/reset password, change password,
-      anti-enumeration throughout
+- [x] **Account flows** — register, email confirmation, forgot/reset password, change password +
+      notification, anti-enumeration throughout, every email through the EF outbox to the worker
 - [ ] **Design + finalize pass** — every rendered screen designed rather than scaffolded, walked
       through end to end, declared done (§3)
 - [ ] **Permission override store** — grant/deny rows with `ExpiresAt`, minted into token claims (§3.1)
@@ -862,8 +863,8 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 - [x] **`MyStack.Messaging`** — Wolverine over RabbitMQ, per-app queues and envelope schemas,
       retry→dead-letter policy, trace propagation (§3.3)
 - [x] **`MyStack.Email`** — `IEmailSender`, SMTP adapter (MailKit), the `SendEmail`/`EmailMessage`
-      shape, the renderer seam, the `email.sends` counter; the account emails themselves arrive
-      with the flows (§3.3)
+      shape, the renderer seam, the `email.sends` counter; auth's account flows render and
+      publish the emails (§3.3)
 - [x] **`MyStack.Observability`** — structured logs, OTel traces + metrics, `[Redact]`, dev dashboard
 
 ### apps/web
