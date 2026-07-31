@@ -20,12 +20,15 @@ internal sealed class SeedClient
     // Shown on the sign-in page's "continue to …"; defaults to the client id.
     public string? DisplayName { get; init; }
 
+    // Public and Confidential are browser clients (authorization code + PKCE + refresh);
+    // Machine is client credentials only, with no browser anywhere in its life.
     public SeedClientType Type { get; init; }
 
-    // Required for a confidential client, forbidden for a public one — both misconfigurations
-    // fail startup.
+    // Required for a confidential or machine client, forbidden for a public one — both
+    // misconfigurations fail startup.
     public string? Secret { get; init; }
 
+    // Required for a browser client, forbidden for a machine one.
     public IList<string> RedirectUris { get; init; } = [];
 
     public IList<string> PostLogoutRedirectUris { get; init; } = [];
@@ -35,12 +38,13 @@ internal sealed class SeedClient
     public IList<string> Scopes { get; init; } = [];
 }
 
-// Public is the zero value on purpose: a confidential client that forgets to say so still fails
-// loudly, because its Secret is then forbidden.
+// Public is the zero value on purpose: a confidential or machine client that forgets to say so
+// still fails loudly, because its Secret is then forbidden.
 internal enum SeedClientType
 {
     Public,
     Confidential,
+    Machine,
 }
 
 internal sealed class SeedUser

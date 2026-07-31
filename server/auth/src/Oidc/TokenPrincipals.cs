@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using MyStack.Auth.Data;
 using OpenIddict.Abstractions;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -49,15 +50,50 @@ internal static class TokenPrincipals
         }
 
         principal.SetScopes(scopes);
-
-        if (scopes.Contains(ApiScopes.Read) || scopes.Contains(ApiScopes.Write))
-        {
-            principal.SetResources(ApiScopes.Resource);
-        }
+        SetApiResource(principal, scopes);
 
         principal.SetDestinations(claim => DestinationsFor(claim, principal));
 
         return principal;
+    }
+
+    /// <summary>
+    /// The principal behind a machine client's token (client credentials): the client's own
+    /// identity and scopes, and deliberately nothing resembling a user.
+    /// </summary>
+    public static ClaimsPrincipal CreateForClient(
+        string clientId,
+        string? displayName,
+        ImmutableArray<string> scopes
+    )
+    {
+        var identity = new ClaimsIdentity(
+            TokenValidationParameters.DefaultAuthenticationType,
+            Claims.Name,
+            Claims.Role
+        );
+
+        identity.SetClaim(Claims.Subject, clientId);
+        identity.SetClaim(Claims.Name, displayName);
+
+        var principal = new ClaimsPrincipal(identity);
+        principal.SetScopes(scopes);
+        SetApiResource(principal, scopes);
+
+        // This flow mints no identity token, so every claim rides the access token.
+        principal.SetDestinations(claim => [Destinations.AccessToken]);
+
+        return principal;
+    }
+
+    // The one `aud` rule, shared by user and client tokens: an api.* scope means the token is
+    // minted for the API's audience.
+    private static void SetApiResource(ClaimsPrincipal principal, ImmutableArray<string> scopes)
+    {
+        if (scopes.Contains(ApiScopes.Read) || scopes.Contains(ApiScopes.Write))
+        {
+            principal.SetResources(ApiScopes.Resource);
+        }
     }
 
     // `sub` is not listed: OpenIddict itself puts the subject in both tokens.

@@ -13,10 +13,12 @@ internal static class OidcEndpoints
 {
     public static WebApplication MapAuthOidcEndpoints(this WebApplication app)
     {
-        // Revocation has no mapping on purpose: OpenIddict validates and revokes entirely on its
-        // own, and a passthrough handler would have nothing to add.
+        // Revocation and introspection have no mapping on purpose: OpenIddict validates,
+        // revokes and introspects entirely on its own, and a passthrough handler would have
+        // nothing to add.
         app.MapMethods("/connect/authorize", [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync);
         app.MapPost("/connect/token", ExchangeAsync);
+        app.MapMethods("/connect/userinfo", [HttpMethods.Get, HttpMethods.Post], UserInfoAsync);
         app.MapMethods("/connect/endsession", [HttpMethods.Get, HttpMethods.Post], EndSessionAsync);
 
         return app;
@@ -93,16 +95,36 @@ internal static class OidcEndpoints
         HttpContext context,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        AuthDbContext database
+        AuthDbContext database,
+        IOpenIddictApplicationManager applicationManager
     )
     {
         var request =
             context.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("The OpenIddict request cannot be retrieved.");
 
+        if (request.IsClientCredentialsGrantType())
+        {
+            // OpenIddict already authenticated the client and checked its grant-type and scope
+            // permissions — only a confidential client with valid credentials reaches here.
+            var application =
+                await applicationManager.FindByClientIdAsync(request.ClientId!)
+                ?? throw new InvalidOperationException("The validated client cannot be retrieved.");
+
+            return Results.SignIn(
+                TokenPrincipals.CreateForClient(
+                    request.ClientId!,
+                    await applicationManager.GetDisplayNameAsync(application),
+                    request.GetScopes()
+                ),
+                properties: null,
+                OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
+            );
+        }
+
         if (!request.IsAuthorizationCodeGrantType() && !request.IsRefreshTokenGrantType())
         {
-            // Unreachable while the server config allows exactly two flows; reaching it means
+            // Unreachable while the server config allows exactly three flows; reaching it means
             // the config changed without this handler.
             throw new InvalidOperationException("The grant type is not supported.");
         }
@@ -137,6 +159,61 @@ internal static class OidcEndpoints
         );
     }
 
+    private static async Task<IResult> UserInfoAsync(
+        HttpContext context,
+        UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
+        AuthDbContext database
+    )
+    {
+        // The principal from the access token the caller presented — OpenIddict validated the
+        // token before passthrough.
+        var result = await context.AuthenticateAsync(
+            OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
+        );
+
+        // TryParse before the store lookup: a machine token's sub is its client id, which
+        // Identity would throw on converting to a key — the right answer is invalid_token,
+        // because there is no user behind that token to describe.
+        var subject = result.Principal?.GetClaim(Claims.Subject);
+        var user = Guid.TryParse(subject, out _) ? await userManager.FindByIdAsync(subject!) : null;
+        if (user is null)
+        {
+            return Challenge(Errors.InvalidToken, "The access token has no user behind it.");
+        }
+
+        // Rebuilt through the same funnel token issuance uses and filtered to the claims whose
+        // destination includes the identity token, so userinfo and the id token agree by
+        // construction — same scope gating, and perm/perm_deny stay out of both.
+        var principal = await TokenPrincipals.CreateAsync(
+            signInManager,
+            database,
+            user,
+            result.Principal!.GetScopes()
+        );
+
+        var claims = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [Claims.Subject] = subject!,
+        };
+
+        foreach (
+            var group in principal
+                .Claims.Where(claim => claim.GetDestinations().Contains(Destinations.IdentityToken))
+                .GroupBy(claim => claim.Type)
+        )
+        {
+            // One value serializes as a JSON string, several as an array — the same shape rule
+            // the JWTs follow.
+            claims[group.Key] =
+                group.Count() == 1
+                    ? group.First().Value
+                    : group.Select(claim => claim.Value).ToArray();
+        }
+
+        return Results.Ok(claims);
+    }
+
     private static async Task<IResult> EndSessionAsync(SignInManager<ApplicationUser> signInManager)
     {
         await signInManager.SignOutAsync();
@@ -151,6 +228,18 @@ internal static class OidcEndpoints
 
     private static IResult Forbid(string error, string description) =>
         Results.Forbid(
+            new AuthenticationProperties(
+                new Dictionary<string, string?>
+                {
+                    [OpenIddictServerAspNetCoreConstants.Properties.Error] = error,
+                    [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = description,
+                }
+            ),
+            [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]
+        );
+
+    private static IResult Challenge(string error, string description) =>
+        Results.Challenge(
             new AuthenticationProperties(
                 new Dictionary<string, string?>
                 {

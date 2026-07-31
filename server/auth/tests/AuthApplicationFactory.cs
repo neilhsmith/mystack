@@ -51,6 +51,14 @@ internal sealed class AuthApplicationFactory(
         builder.UseSetting("Seed:Clients:0:Scopes:2", "roles");
         builder.UseSetting("Seed:Clients:0:Scopes:3", "api.read");
         builder.UseSetting("Seed:Clients:0:Scopes:4", "api.write");
+
+        // The machine client, deliberately granted api.read alone so an over-broad scope
+        // request has something to be refused against.
+        builder.UseSetting("Seed:Clients:1:ClientId", AuthAppFixture.MachineClientId);
+        builder.UseSetting("Seed:Clients:1:Type", "Machine");
+        builder.UseSetting("Seed:Clients:1:Secret", AuthAppFixture.MachineClientSecret);
+        builder.UseSetting("Seed:Clients:1:Scopes:0", "api.read");
+
         builder.UseSetting("Seed:Users:0:Email", AuthAppFixture.AdminEmail);
         builder.UseSetting("Seed:Users:0:Roles:0", "globaladmin");
 

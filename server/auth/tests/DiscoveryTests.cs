@@ -15,6 +15,11 @@ public sealed class DiscoveryTests(AuthAppFixture app)
             .GetString()
             .ShouldEndWith("/connect/authorize");
         document.GetProperty("token_endpoint").GetString().ShouldEndWith("/connect/token");
+        document.GetProperty("userinfo_endpoint").GetString().ShouldEndWith("/connect/userinfo");
+        document
+            .GetProperty("introspection_endpoint")
+            .GetString()
+            .ShouldEndWith("/connect/introspection");
         document
             .GetProperty("end_session_endpoint")
             .GetString()
@@ -41,7 +46,7 @@ public sealed class DiscoveryTests(AuthAppFixture app)
     }
 
     [Fact]
-    public async Task GrantTypes_AreExactlyCodeAndRefresh_NeverPassword()
+    public async Task GrantTypes_AreExactlyCodeRefreshAndClientCredentials_NeverPassword()
     {
         var document = await GetDiscoveryDocumentAsync();
 
@@ -53,7 +58,10 @@ public sealed class DiscoveryTests(AuthAppFixture app)
 
         // The exact list is the assertion; password called out anyway because it is the one
         // non-negotiable a copy-paste would reintroduce (architecture §3.4).
-        grantTypes.ShouldBe(["authorization_code", "refresh_token"], ignoreOrder: true);
+        grantTypes.ShouldBe(
+            ["authorization_code", "refresh_token", "client_credentials"],
+            ignoreOrder: true
+        );
         grantTypes.ShouldNotContain("password");
     }
 

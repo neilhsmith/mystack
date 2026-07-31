@@ -30,7 +30,8 @@ sender for every environment, with the worker delivering published emails to Mai
 and the account flows: register + email confirmation, forgot/reset password, change password +
 notification, every email published atomically through the EF outbox and delivered by the
 worker, anti-enumeration throughout — plus permission overrides, minted into access-token
-claims on every issuance.
+claims on every issuance, and the wider token surface: userinfo, the client-credentials grant
+for machine clients, and introspection for confidential callers.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 

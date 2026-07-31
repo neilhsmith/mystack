@@ -237,9 +237,10 @@ internal sealed partial class AuthSeeder(
         LogUserCreated(logger, seed.Email);
     }
 
-    // The only shape a seeded client can take: authorization code + PKCE + refresh, every
-    // endpoint this server exposes, implicit consent (D17 — every v1 client is first-party).
-    // Machine clients arrive with the client-credentials grant in auth-track step 10.
+    // The two shapes a seeded client can take, both fixed in code: a browser client — public or
+    // confidential — gets authorization code + PKCE + refresh with implicit consent (D17 — every
+    // v1 client is first-party); a machine client gets client credentials and the back-channel
+    // endpoints, nothing a browser would ever touch. There is still no grant-type knob in config.
     private static OpenIddictApplicationDescriptor DescriptorFor(SeedClient client)
     {
         if (string.IsNullOrWhiteSpace(client.ClientId))
@@ -247,6 +248,13 @@ internal sealed partial class AuthSeeder(
             throw new InvalidOperationException("Every Seed:Clients entry needs a ClientId.");
         }
 
+        return client.Type == SeedClientType.Machine
+            ? MachineDescriptorFor(client)
+            : BrowserDescriptorFor(client);
+    }
+
+    private static OpenIddictApplicationDescriptor BrowserDescriptorFor(SeedClient client)
+    {
         if (client.RedirectUris.Count == 0)
         {
             throw new InvalidOperationException(
@@ -292,6 +300,14 @@ internal sealed partial class AuthSeeder(
             Requirements = { Requirements.Features.ProofKeyForCodeExchange },
         };
 
+        if (confidential)
+        {
+            // Introspection demands an authenticated caller (RFC 7662), so the permission goes
+            // to confidential clients only — the BFF can ask whether a token it presented is
+            // still active without holding auth's key material.
+            descriptor.Permissions.Add(Permissions.Endpoints.Introspection);
+        }
+
         foreach (var uri in client.RedirectUris)
         {
             descriptor.RedirectUris.Add(ParseUri(client.ClientId, uri));
@@ -302,6 +318,57 @@ internal sealed partial class AuthSeeder(
             descriptor.PostLogoutRedirectUris.Add(ParseUri(client.ClientId, uri));
         }
 
+        AddGrantedScopes(descriptor, client);
+
+        return descriptor;
+    }
+
+    private static OpenIddictApplicationDescriptor MachineDescriptorFor(SeedClient client)
+    {
+        if (string.IsNullOrWhiteSpace(client.Secret))
+        {
+            throw new InvalidOperationException(
+                $"Machine client '{client.ClientId}' has no Secret. There is no fallback: "
+                    + "a silently-defaulted secret would ship in a public repo (§3.4)."
+            );
+        }
+
+        if (client.RedirectUris.Count > 0 || client.PostLogoutRedirectUris.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Machine client '{client.ClientId}' declares redirect URIs, but a machine "
+                    + "client never sees a browser. Declare it Public or Confidential, or "
+                    + "remove them."
+            );
+        }
+
+        // Always confidential — the secret is the entire authentication story — and no consent
+        // type: consent is a user concept, and no user ever appears in this flow.
+        var descriptor = new OpenIddictApplicationDescriptor
+        {
+            ClientId = client.ClientId,
+            DisplayName = client.DisplayName ?? client.ClientId,
+            ClientType = ClientTypes.Confidential,
+            ClientSecret = client.Secret,
+            Permissions =
+            {
+                Permissions.Endpoints.Token,
+                Permissions.Endpoints.Introspection,
+                Permissions.Endpoints.Revocation,
+                Permissions.GrantTypes.ClientCredentials,
+            },
+        };
+
+        AddGrantedScopes(descriptor, client);
+
+        return descriptor;
+    }
+
+    private static void AddGrantedScopes(
+        OpenIddictApplicationDescriptor descriptor,
+        SeedClient client
+    )
+    {
         foreach (var scope in client.Scopes)
         {
             if (!GrantableScopes.Contains(scope, StringComparer.Ordinal))
@@ -315,8 +382,6 @@ internal sealed partial class AuthSeeder(
 
             descriptor.Permissions.Add(Permissions.Prefixes.Scope + scope);
         }
-
-        return descriptor;
     }
 
     // The reconcile comparison. The secret goes through ValidateClientSecretAsync because it is
