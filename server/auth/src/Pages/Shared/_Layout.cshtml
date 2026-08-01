@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    @* The stylesheet flips theme by OS preference; this keeps the pre-CSS flash the right color. *@
+    <meta name="color-scheme" content="light dark" />
+    <title>@ViewData["Title"] — MyStack</title>
+    <link rel="stylesheet" href="~/app.css" asp-append-version="true" />
+</head>
+<body class="bg-background text-foreground min-h-svh text-sm antialiased">
+    <div class="flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-10">
+        <a href="/" class="text-xl font-semibold tracking-tight">MyStack</a>
+        <main class="w-full max-w-sm">
+            <div class="bg-card text-card-foreground ring-foreground/10 flex flex-col gap-4 rounded-xl py-4 ring-1">
+                @RenderBody()
+            </div>
+        </main>
+        <p class="text-muted-foreground text-xs">One account for every MyStack app.</p>
+    </div>
+</body>
+</html>

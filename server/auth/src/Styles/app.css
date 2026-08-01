@@ -1,0 +1,8 @@
+/* The rendered pages' stylesheet source. The theme comes from packages/ui — the same token
+ * file the React apps build from — imported by relative path because this build runs without
+ * node_modules; only the Pages are scanned, so the output carries exactly what they use.
+ * Compile with `pnpm build:css` (repo root) into wwwroot/app.css, which is committed and
+ * freshness-checked by the gate. Generated, never hand-edited. */
+@import "tailwindcss" source(none);
+@import "../../../../packages/ui/src/styles/theme.css";
+@source "../Pages";

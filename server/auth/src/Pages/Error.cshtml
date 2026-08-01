@@ -1,21 +1,14 @@
 @page "/error/{status:int?}"
 @model MyStack.Auth.Pages.ErrorModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@Model.Title</title>
-</head>
-<body>
-    <main>
-        <h1>@Model.Title</h1>
-        <p>@Model.Message</p>
-        @if (Model.Detail is not null)
-        {
-            <p>@Model.Detail</p>
-        }
-        <p><a href="/">Back to safety</a></p>
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = Model.Title;
+}
+<div class="grid gap-1 px-4 text-center">
+    <h1 class="text-lg leading-snug font-semibold tracking-tight">@Model.Title</h1>
+    <p class="text-muted-foreground text-sm">@Model.Message</p>
+    @if (Model.Detail is not null)
+    {
+        <p class="text-muted-foreground text-sm">@Model.Detail</p>
+    }
+</div>
+<p class="text-muted-foreground px-4 text-center text-sm"><a href="/" class="text-foreground font-medium underline underline-offset-4">Back to safety</a></p>

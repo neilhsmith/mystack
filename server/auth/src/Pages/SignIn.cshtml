@@ -1,32 +1,36 @@
 @page "/signin"
 @model MyStack.Auth.Pages.SignInModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign in</title>
-</head>
-<body>
-    <main>
-        <h1>Sign in</h1>
-        <form method="post">
-            <div asp-validation-summary="All" role="alert"></div>
-            <div>
-                <label asp-for="Email">Email</label>
-                <input asp-for="Email" type="email" autocomplete="username" required />
-            </div>
-            <div>
-                <label asp-for="Password">Password</label>
-                <input asp-for="Password" type="password" autocomplete="current-password" required />
-            </div>
-            <div>
-                <label><input asp-for="RememberMe" type="checkbox" /> Keep me signed in</label>
-            </div>
-            <button type="submit">Sign in</button>
-        </form>
-        <p><a href="/register">Create an account</a></p>
-        <p><a href="/forgot-password">Forgot your password?</a></p>
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = "Sign in";
+}
+<div class="grid gap-1 px-4 text-center">
+    <h1 class="text-lg leading-snug font-semibold tracking-tight">Sign in</h1>
+    <p class="text-muted-foreground text-sm">Use your MyStack account.</p>
+</div>
+<form method="post" class="grid gap-4 px-4">
+    <partial name="_ErrorSummary" />
+    <div class="grid gap-2">
+        <label asp-for="Email" class="text-sm leading-none font-medium select-none">Email</label>
+        <input asp-for="Email" type="email" autocomplete="username" required
+               aria-invalid="@ViewData.ModelState.AriaInvalid("Email")" aria-describedby="Email-error"
+               class="border-input h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base md:text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40" />
+        <p asp-validation-for="Email" id="Email-error" class="text-destructive text-sm empty:hidden"></p>
+    </div>
+    <div class="grid gap-2">
+        <div class="flex items-center justify-between">
+            <label asp-for="Password" class="text-sm leading-none font-medium select-none">Password</label>
+            <a href="/forgot-password" class="text-muted-foreground text-sm underline underline-offset-4 hover:text-foreground">Forgot your password?</a>
+        </div>
+        <input asp-for="Password" type="password" autocomplete="current-password" required
+               aria-invalid="@ViewData.ModelState.AriaInvalid("Password")" aria-describedby="Password-error"
+               class="border-input h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base md:text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40" />
+        <p asp-validation-for="Password" id="Password-error" class="text-destructive text-sm empty:hidden"></p>
+    </div>
+    <label class="flex items-center gap-2 text-sm leading-none font-medium select-none">
+        <input asp-for="RememberMe" type="checkbox" class="accent-primary size-4" />
+        Keep me signed in
+    </label>
+    <button type="submit"
+            class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Sign in</button>
+</form>
+<p class="text-muted-foreground px-4 text-center text-sm">New here? <a href="/register" class="text-foreground font-medium underline underline-offset-4">Create an account</a></p>

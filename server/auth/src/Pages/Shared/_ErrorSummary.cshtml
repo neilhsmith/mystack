@@ -1,0 +1,25 @@
+@if (!ViewContext.ModelState.IsValid)
+{
+    @* tabindex + autofocus move keyboard and screen-reader attention here on the postback —
+       the JS-free version of focusing the summary — and each field error links to its input. *@
+    <div id="error-summary" tabindex="-1" autofocus role="alert"
+         class="text-destructive grid gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm">
+        <p class="font-medium">That didn't work</p>
+        <ul class="text-destructive/90 grid list-none gap-0.5">
+            @foreach (var (key, entry) in ViewContext.ModelState)
+            {
+                foreach (var error in entry.Errors)
+                {
+                    if (string.IsNullOrEmpty(key))
+                    {
+                        <li>@error.ErrorMessage</li>
+                    }
+                    else
+                    {
+                        <li><a class="underline underline-offset-4" href="#@key.Replace('.', '_')">@error.ErrorMessage</a></li>
+                    }
+                }
+            }
+        </ul>
+    </div>
+}

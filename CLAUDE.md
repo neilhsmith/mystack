@@ -43,7 +43,11 @@ tests — and
 spelled once for every app that speaks it — and the JS workspace: pnpm + Prettier at the root,
 `packages/ui` holding the shadcn (Base UI) components imported wholesale and the shared
 `light-dark()` theme tokens (`theme.css`) that both the future React apps and auth's rendered
-pages style from.
+pages style from — and the designed pages themselves: one `_Layout.cshtml` card shell, the
+shadcn recipes as utility classes across all thirteen pages, light + dark from the OS with no
+JavaScript, the committed `wwwroot/app.css` compiled by `pnpm build:css` and freshness-checked
+by the gate, `style-src 'self'` on the pages policy, and the error-summary/`aria-invalid`
+accessibility bar ([docs/auth.md](docs/auth.md) § The rendered pages).
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
@@ -86,6 +90,7 @@ dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migr
 pnpm install                         # JS workspace deps
 pnpm format                          # prettier over apps/ + packages/; CI runs `pnpm format:check`
 pnpm typecheck                       # tsc --noEmit in every package
+pnpm build:css                       # regenerate auth's committed wwwroot/app.css; CI diffs it
 ```
 
 ## Conventions

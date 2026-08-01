@@ -48,6 +48,13 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The committed stylesheet must be what its source compiles to — csharpier-style, but for
+      # the generated CSS the auth pages link.
+      - name: Auth stylesheet freshness
+        run: |
+          pnpm build:css
+          git diff --exit-code -- server/auth/src/wwwroot/app.css
+
       - run: dotnet tool restore
 
       - name: Format check

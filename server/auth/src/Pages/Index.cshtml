@@ -1,26 +1,32 @@
 @page "/"
 @model MyStack.Auth.Pages.IndexModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MyStack account</title>
-</head>
-<body>
-    <main>
-        <h1>MyStack account</h1>
-        @if (Model.Email is not null)
-        {
-            <p>Signed in as <strong>@Model.Email</strong>.</p>
-            <p><a href="/change-password">Change password</a></p>
-            <p><a href="/connect/endsession">Sign out</a></p>
-        }
-        else
-        {
-            <p><a href="/signin">Sign in</a></p>
-            <p><a href="/register">Create an account</a></p>
-        }
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = "Your account";
+}
+<div class="grid gap-1 px-4 text-center">
+    <h1 class="text-lg leading-snug font-semibold tracking-tight">Your account</h1>
+    @if (Model.Email is not null)
+    {
+        <p class="text-muted-foreground text-sm">Signed in as <strong class="text-foreground font-medium">@Model.Email</strong>.</p>
+    }
+    else
+    {
+        <p class="text-muted-foreground text-sm">Sign in to manage your MyStack account.</p>
+    }
+</div>
+<div class="grid gap-2 px-4">
+    @if (Model.Email is not null)
+    {
+        <a href="/change-password"
+           class="border-border bg-background hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Change password</a>
+        <a href="/connect/endsession"
+           class="border-border bg-background hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Sign out</a>
+    }
+    else
+    {
+        <a href="/signin"
+           class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Sign in</a>
+        <a href="/register"
+           class="border-border bg-background hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Create an account</a>
+    }
+</div>
