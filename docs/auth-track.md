@@ -401,6 +401,43 @@ Partly auth code, partly repo-wide; recorded here because most of it blocks *aut
 
 ---
 
+## After the track — parked explorations
+
+Ideas that surfaced while building, deliberately not in steps 1–16. Each is parked with its
+trigger so picking it up later starts from the decision already made, not from archaeology.
+
+- **MFA** — the first exploration once the track is done (decided during 15a's conformance run).
+  The spec surface is already mapped: honor `acr_values` with step-up authentication, assert the
+  achieved level via `acr`, emit `amr` (RFC 8176's method registry, e.g. `["pwd","otp"]`), and
+  advertise `acr_values_supported`. Until then the suite's acr warning stays accepted — a
+  single-method password OP has no honest assurance taxonomy.
+- **Optional username → `preferred_username`** — when accounts can choose a handle, it ships as
+  the `preferred_username` claim (profile-scoped): set it in `TokenPrincipals`, one destinations
+  line, tests. `name` stays reserved for a real full-name field, and the email keeps traveling
+  under the `email` scope alone (the 15a leak fix).
+- **Profile attributes** (`picture`, `locale`, `website`, `zoneinfo`, …) — the seam is built:
+  store the datum where Identity surfaces it (a user-claim row, or a column plus a claims-factory
+  addition), add one `DestinationsFor` line under the `profile` scope, test the gate. `updated_at`
+  lands with the first of these — it needs a real last-modified column and a decision about what
+  counts as "information updated", and only earns its keep once there is cached profile data to
+  invalidate.
+- **Conformance re-runs** — `conformance/` replays the Basic OP plan by hand after any
+  protocol-touching change; findings become tests, per the README. If a pre-release checklist
+  ever wants it on demand, a `workflow_dispatch` job wrapping the harness is the shape — never
+  the per-PR gate.
+- **Impersonation grant (§3.2)** — already inventoried in architecture §7; the code seams
+  (permission-override sibling row, the userinfo `act` note) are in place. Ordered behind the
+  BFF, not behind this track.
+- **Distributed rate limiting** — the limiter is in-memory per instance, right for one VPS;
+  replicas move the partition state to something shared (architecture's deferred Redis is the
+  natural home). Trigger: the first second instance.
+- **Third-party clients** — D17's boundary: no consent screen, implicit-consent clients only,
+  enforced in code. Crossing it means a consent page, per-client consent records — and
+  revisiting 15a's decision to ship scoped claims in the id token, which leans on every client
+  being first-party.
+
+---
+
 ## Testing the OAuth flows
 
 Three tools, three jobs. Only the first is a deliverable.
