@@ -852,6 +852,10 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       decided, not assumed
 - [x] **Account flows** — register, email confirmation, forgot/reset password, change password +
       notification, anti-enumeration throughout, every email through the EF outbox to the worker
+- [x] **Account-surface guards** — IP-partitioned rate limiting over the credential/email
+      endpoints, timing decoys on the miss paths, `no-store` on rendered pages, the
+      root/error/signed-out/access-denied pages with Accept-split error shaping, the end-session
+      confirmation, remember-me
 - [ ] **Design + finalize pass** — every rendered screen designed rather than scaffolded, walked
       through end to end, declared done (§3)
 - [x] **Permission override store** — grant/deny rows with `ExpiresAt`, minted into token claims (§3.1)

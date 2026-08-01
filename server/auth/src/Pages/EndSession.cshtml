@@ -1,0 +1,24 @@
+@page "/connect/endsession"
+@model MyStack.Auth.Pages.EndSessionModel
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign out</title>
+</head>
+<body>
+    <main>
+        <h1>Sign out?</h1>
+        <p>This signs you out of your account and every app using it.</p>
+        <form method="post">
+            @foreach (var parameter in Model.Parameters)
+            {
+                <input type="hidden" name="@parameter.Name" value="@parameter.Value" />
+            }
+            <button type="submit">Sign out</button>
+        </form>
+        <p><a href="/">Never mind</a></p>
+    </main>
+</body>
+</html>

@@ -31,7 +31,11 @@ extras: the device authorization grant (the `Device` client shape, `/connect/dev
 signed-in `/connect/verify` approval page), PAR with its per-client
 `RequirePushedAuthorizationRequests` opt-in, and back-channel logout — per-client
 `BackchannelLogoutUri` config and signed logout tokens POSTed to every registered client when a
-session ends — and
+session ends — and the account-surface guards: IP-partitioned rate limiting over the
+credential/email endpoints, timing decoys on the anti-enumeration miss paths, `no-store` on
+rendered pages, the root/error/signed-out/access-denied pages with Accept-split error shaping
+(browsers get the error page, APIs keep ProblemDetails), the end-session confirmation page, and
+remember-me — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
 spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.

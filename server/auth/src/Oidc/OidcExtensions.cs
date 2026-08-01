@@ -133,7 +133,13 @@ internal static class OidcExtensions
                     .EnableTokenEndpointPassthrough()
                     .EnableUserInfoEndpointPassthrough()
                     .EnableEndUserVerificationEndpointPassthrough()
-                    .EnableEndSessionEndpointPassthrough();
+                    .EnableEndSessionEndpointPassthrough()
+                    // Interactive-endpoint rejections (a bad client_id, an unregistered
+                    // redirect) defer to the status-code pages middleware instead of
+                    // OpenIddict's own bare error page, so a browser stranded mid-flow gets the
+                    // same error page as everything else. Token endpoint errors stay the OAuth
+                    // JSON the spec requires.
+                    .EnableStatusCodePagesIntegration();
 
                 if (
                     builder.Environment.IsDevelopment()

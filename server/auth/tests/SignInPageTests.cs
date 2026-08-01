@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
+using MyStack.Auth.Data;
 using MyStack.Auth.Telemetry;
 using Shouldly;
 
@@ -176,6 +179,94 @@ public sealed class SignInPageTests(AuthAppFixture app)
         signIns
             .GetMeasurementSnapshot()
             .ShouldContain(measurement => (string?)measurement.Tags["result"] == "locked_out");
+    }
+
+    // The timing half of anti-enumeration: an unknown email must do hash-shaped work, not
+    // return early. The reference is a real in-process PBKDF2 verification; a miss request that
+    // skipped the decoy would come in far under it, since everything else the request does is
+    // millisecond noise.
+    [Fact]
+    public async Task UnknownEmail_DoesHashShapedWork()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var hasher = app.Services.GetRequiredService<IPasswordHasher<ApplicationUser>>();
+        var user = new ApplicationUser();
+        var hash = hasher.HashPassword(user, "a warmup passphrase");
+        hasher.VerifyHashedPassword(user, hash, "a warmup passphrase");
+
+        // The faster of two runs, so a scheduler stall can't inflate the reference.
+        var reference = TimeSpan.MaxValue;
+        for (var run = 0; run < 2; run++)
+        {
+            var sample = Stopwatch.StartNew();
+            hasher.VerifyHashedPassword(user, hash, "the wrong passphrase");
+            sample.Stop();
+            reference = sample.Elapsed < reference ? sample.Elapsed : reference;
+        }
+
+        using var client = app.CreateFlowClient();
+        // Warm the request path (and the decoy's lazily created hash) off the clock.
+        await OAuth.SignInAsync(
+            client,
+            $"warmup-{Guid.NewGuid():N}@example.test",
+            "any passphrase at all",
+            cancellationToken: cancellationToken
+        );
+
+        var timed = Stopwatch.StartNew();
+        await OAuth.SignInAsync(
+            client,
+            $"missing-{Guid.NewGuid():N}@example.test",
+            "any passphrase at all",
+            cancellationToken: cancellationToken
+        );
+        timed.Stop();
+
+        timed.Elapsed.ShouldBeGreaterThan(reference / 2);
+    }
+
+    [Fact]
+    public async Task RememberMe_IsTheOnlyWayToAPersistentCookie()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"remember-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var session = app.CreateFlowClient();
+        var sessionCookie = IdentityCookie(
+            await OAuth.SignInAsync(
+                session,
+                email,
+                AuthAppFixture.DefaultPassword,
+                cancellationToken: cancellationToken
+            )
+        );
+        sessionCookie.ShouldNotContain("expires=", Case.Insensitive);
+
+        using var remembered = app.CreateFlowClient();
+        var persistentCookie = IdentityCookie(
+            await PageForms.SubmitAsync(
+                remembered,
+                "/signin",
+                new Dictionary<string, string>
+                {
+                    ["Email"] = email,
+                    ["Password"] = AuthAppFixture.DefaultPassword,
+                    ["RememberMe"] = "true",
+                },
+                cancellationToken
+            )
+        );
+        persistentCookie.ShouldContain("expires=", Case.Insensitive);
+    }
+
+    private static string IdentityCookie(HttpResponseMessage response)
+    {
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        return response
+            .Headers.GetValues("Set-Cookie")
+            .Where(cookie => cookie.StartsWith(".AspNetCore.Identity.Application"))
+            .ShouldHaveSingleItem();
     }
 
     // Every credential form rides antiforgery; a POST without the token must die before the

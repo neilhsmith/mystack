@@ -46,6 +46,9 @@ public sealed class ForgotPasswordModel(
         }
         else
         {
+            // The hit path just minted a reset token; the miss path mints one for nobody, so
+            // response time doesn't separate them.
+            await Decoys.PasswordResetTokenAsync(users);
             metrics.PasswordReset(
                 "requested",
                 user is null ? "unknown_email" : "unconfirmed_email"

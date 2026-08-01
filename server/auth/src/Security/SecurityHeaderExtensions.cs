@@ -14,9 +14,9 @@ internal static class SecurityHeaderExtensions
         services
             .AddSecurityHeaderPolicies()
             .SetDefaultPolicy(policy => AddAuthPolicy(policy, selfFormAction: false))
-            // The one loosening a rendered page needs: its own form has to be able to post back.
-            // Everything else stays pinned; the design pass opens style-src if and when
-            // there is styling to allow.
+            // Two page-only deltas: form-action 'self' (a rendered form has to post back) and
+            // Cache-Control: no-store (a rendered page holds credentials). Everything else stays
+            // pinned; the design pass opens style-src if and when there is styling to allow.
             .AddPolicy(PagesPolicy, policy => AddAuthPolicy(policy, selfFormAction: true));
 
         return services;
@@ -54,5 +54,13 @@ internal static class SecurityHeaderExtensions
             // Baseline HSTS lacks includeSubDomains. Still no preload: that is a one-way door
             // onto a list shipped inside browsers — an operator's decision, not a default.
             .AddStrictTransportSecurityMaxAgeIncludeSubDomains();
+
+        if (selfFormAction)
+        {
+            // Rendered pages hold credentials, codes and reset forms; bfcache, history and any
+            // shared cache must not be able to re-show one after sign-out. The default policy
+            // deliberately doesn't carry this: discovery and the JWKS are meant to be cached.
+            policy.AddCustomHeader("Cache-Control", "no-store");
+        }
     }
 }

@@ -45,6 +45,9 @@ public sealed class ResendConfirmationModel(
         }
         else
         {
+            // The hit path just minted a confirmation token; the miss path mints one for
+            // nobody, so response time doesn't separate them.
+            await Decoys.EmailConfirmationTokenAsync(users);
             metrics.EmailConfirmation(
                 user is null ? "resend_unknown_email" : "resend_already_confirmed"
             );

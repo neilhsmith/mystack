@@ -1,5 +1,7 @@
+using System.Net;
 using MyStack.Auth.Account;
 using MyStack.Auth.Data;
+using MyStack.Auth.ErrorHandling;
 using MyStack.Auth.Health;
 using MyStack.Auth.Messaging;
 using MyStack.Auth.Oidc;
@@ -21,6 +23,7 @@ builder.AddObservability("auth");
 
 builder.Services.AddProblemDetails();
 builder.Services.AddAuthSecurityHeaders();
+builder.AddAuthRateLimiter();
 builder.AddAuthDatabase();
 builder.Services.AddAuthIdentity();
 builder.AddAuthOpenIddict();
@@ -52,11 +55,35 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+if (app.Environment.IsEnvironment("Testing"))
+{
+    // TestServer's in-memory connections carry no client address, which would fold every test
+    // into one rate-limit partition; this maps a test-supplied header onto the connection so
+    // each test client is its own caller. Production trusts the socket.
+    app.Use(
+        (context, next) =>
+        {
+            if (IPAddress.TryParse(context.Request.Headers["X-Test-Client-Ip"], out var address))
+            {
+                context.Connection.RemoteIpAddress = address;
+            }
+
+            return next(context);
+        }
+    );
+}
+
 app.UseAuthSecurityHeaders();
 app.UseRequestLogging();
 
-// Inside the request log, so the envelope records the 500 the client actually received.
-app.UseExceptionHandler();
+// Inside the request log, so the envelope records what the client actually received: the
+// status-code shaping and the exception handler, ordered as the extension explains.
+app.UseAuthErrorHandling();
+
+// Explicit rather than implicit routing: the error-page re-execution has to re-match the
+// request, so the matcher must sit inside the status-code shaping.
+app.UseRouting();
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseActorEnrichment();

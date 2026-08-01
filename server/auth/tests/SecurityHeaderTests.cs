@@ -23,10 +23,13 @@ public sealed class SecurityHeaderTests(AuthAppFixture app)
         csp.ShouldContain("frame-ancestors 'none'");
         csp.ShouldContain("base-uri 'none'");
         csp.ShouldContain("form-action 'none'");
+
+        // Discovery and the JWKS are meant to be cached; no-store belongs to the pages alone.
+        response.Headers.Contains("Cache-Control").ShouldBeFalse();
     }
 
     [Fact]
-    public async Task RenderedPages_LoosenExactlyFormAction()
+    public async Task RenderedPages_LoosenFormAction_AndForbidCaching()
     {
         var response = await app.Client.GetAsync("/signin", TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
@@ -37,6 +40,9 @@ public sealed class SecurityHeaderTests(AuthAppFixture app)
         csp.ShouldContain("frame-ancestors 'none'");
         csp.ShouldContain("base-uri 'none'");
         csp.ShouldContain("form-action 'self'");
+
+        // Credential-bearing pages must not be re-showable from bfcache or a shared cache.
+        Header(response, "Cache-Control").ShouldContain("no-store");
     }
 
     private static void AssertCommonHeaders(HttpResponseMessage response)

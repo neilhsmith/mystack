@@ -16,7 +16,8 @@ namespace MyStack.Auth.Oidc;
 // wants. Delivery is concurrent and best-effort — a logout token outlives its usefulness in
 // minutes, so queued retries would mostly deliver dead tokens; a missed notification is
 // bounded by the consumer's own token lifetime, and the failure is logged and counted.
-internal sealed partial class BackchannelLogoutNotifier(
+// Public because the EndSession page model injects it, and Razor Pages generate public types.
+public sealed partial class BackchannelLogoutNotifier(
     IOpenIddictApplicationManager applications,
     IHttpClientFactory httpClientFactory,
     IOptionsMonitor<OpenIddictServerOptions> serverOptions,
