@@ -20,6 +20,9 @@
                 <label asp-for="Password">Password</label>
                 <input asp-for="Password" type="password" autocomplete="current-password" required />
             </div>
+            <div>
+                <label><input asp-for="RememberMe" type="checkbox" /> Keep me signed in</label>
+            </div>
             <button type="submit">Sign in</button>
         </form>
         <p><a href="/register">Create an account</a></p>

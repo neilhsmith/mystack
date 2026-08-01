@@ -1,5 +1,6 @@
 using MyStack.Auth.Account;
 using MyStack.Auth.Data;
+using MyStack.Auth.ErrorHandling;
 using MyStack.Auth.Health;
 using MyStack.Auth.Messaging;
 using MyStack.Auth.Oidc;
@@ -21,6 +22,7 @@ builder.AddObservability("auth");
 
 builder.Services.AddProblemDetails();
 builder.Services.AddAuthSecurityHeaders();
+builder.AddAuthRateLimiter();
 builder.AddAuthDatabase();
 builder.Services.AddAuthIdentity();
 builder.AddAuthOpenIddict();
@@ -55,8 +57,14 @@ var app = builder.Build();
 app.UseAuthSecurityHeaders();
 app.UseRequestLogging();
 
-// Inside the request log, so the envelope records the 500 the client actually received.
-app.UseExceptionHandler();
+// Inside the request log, so the envelope records what the client actually received: the
+// status-code shaping and the exception handler, ordered as the extension explains.
+app.UseAuthErrorHandling();
+
+// Explicit rather than implicit routing: the error-page re-execution has to re-match the
+// request, so the matcher must sit inside the status-code shaping.
+app.UseRouting();
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseActorEnrichment();

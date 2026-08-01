@@ -16,12 +16,11 @@ internal static class OidcEndpoints
     {
         // Revocation, introspection, device authorization and PAR have no mapping on purpose:
         // OpenIddict handles all four entirely on its own, and a passthrough handler would have
-        // nothing to add. The end-user verification endpoint is the Verify Razor page — it
-        // renders forms, so it lives with the other pages.
+        // nothing to add. The end-user verification and end-session endpoints are the Verify and
+        // EndSession Razor pages — they render forms, so they live with the other pages.
         app.MapMethods("/connect/authorize", [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync);
         app.MapPost("/connect/token", ExchangeAsync);
         app.MapMethods("/connect/userinfo", [HttpMethods.Get, HttpMethods.Post], UserInfoAsync);
-        app.MapMethods("/connect/endsession", [HttpMethods.Get, HttpMethods.Post], EndSessionAsync);
 
         return app;
     }
@@ -224,48 +223,6 @@ internal static class OidcEndpoints
         }
 
         return Results.Ok(claims);
-    }
-
-    private static async Task<IResult> EndSessionAsync(
-        HttpContext context,
-        UserManager<ApplicationUser> userManager,
-        SignInManager<ApplicationUser> signInManager,
-        BackchannelLogoutNotifier backchannelLogout
-    )
-    {
-        // Whose session is ending: the live cookie's user, or — when the cookie already
-        // expired — the subject of the id_token_hint OpenIddict validated, so a client-initiated
-        // sign-out still propagates to the other apps holding their own sessions. Neither means
-        // there is nobody to notify about.
-        var cookie = await context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
-        var subject = cookie.Succeeded ? userManager.GetUserId(cookie.Principal) : null;
-        if (subject is null)
-        {
-            var hint = await context.AuthenticateAsync(
-                OpenIddictServerAspNetCoreDefaults.AuthenticationScheme
-            );
-            subject = hint.Principal?.GetClaim(Claims.Subject);
-        }
-
-        await signInManager.SignOutAsync();
-
-        if (subject is not null)
-        {
-            await backchannelLogout.NotifyAsync(
-                subject,
-                new Uri(
-                    $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}",
-                    UriKind.Absolute
-                )
-            );
-        }
-
-        // OpenIddict redirects to the request's post_logout_redirect_uri when it validated one;
-        // RedirectUri is only the fallback for a bare sign-out.
-        return Results.SignOut(
-            new AuthenticationProperties { RedirectUri = "/" },
-            [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]
-        );
     }
 
     private static object ClaimValue(Claim claim) =>

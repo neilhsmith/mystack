@@ -87,6 +87,12 @@ internal sealed class AuthApplicationFactory(
             }
         }
 
+        // The startup filter wraps the app's pipeline from the outside, so the app itself never
+        // has to know it is under test — see FakeClientIpStartupFilter.
+        builder.ConfigureServices(services =>
+            services.AddSingleton<IStartupFilter, FakeClientIpStartupFilter>()
+        );
+
         if (logs is not null)
         {
             builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(logs));

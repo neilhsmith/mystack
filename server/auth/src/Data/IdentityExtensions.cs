@@ -56,7 +56,18 @@ internal static class IdentityExtensions
             .PersistKeysToDbContext<AuthDbContext>()
             .SetApplicationName("mystack-auth");
 
-        services.ConfigureApplicationCookie(cookie => cookie.LoginPath = "/signin");
+        services.ConfigureApplicationCookie(cookie =>
+        {
+            cookie.LoginPath = "/signin";
+            cookie.AccessDeniedPath = "/access-denied";
+
+            // The session-persistence decision (auth-track 14): the cookie is a browser-session
+            // cookie unless the person ticks remember-me; a remembered session lives 14 sliding
+            // days — the same order of horizon as a refresh token. Pinned rather than inherited
+            // so a framework-default change can't quietly lengthen sessions.
+            cookie.ExpireTimeSpan = TimeSpan.FromDays(14);
+            cookie.SlidingExpiration = true;
+        });
 
         // A password change rotates the security stamp; this is how often other live cookie
         // sessions re-check it. Identity's default half hour is a long ride for a stolen session

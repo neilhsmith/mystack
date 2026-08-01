@@ -69,6 +69,40 @@ internal static class OAuth
         return query["code"].ShouldNotBeNull();
     }
 
+    /// <summary>
+    /// Drives /connect/endsession the way a browser does. A request whose id_token_hint
+    /// OpenIddict validated acts immediately; anything else renders the confirmation page,
+    /// which this submits — echoing the request's own parameters, the way the page's hidden
+    /// fields do.
+    /// </summary>
+    public static async Task<HttpResponseMessage> EndSessionAsync(
+        HttpClient client,
+        string query = "",
+        CancellationToken cancellationToken = default
+    )
+    {
+        var url = "/connect/endsession" + query;
+
+        var page = await client.GetAsync(url, cancellationToken);
+        if (page.StatusCode != HttpStatusCode.OK)
+        {
+            return page;
+        }
+
+        var fields = new Dictionary<string, string>();
+        var parameters = System.Web.HttpUtility.ParseQueryString(query.TrimStart('?'));
+        foreach (var key in parameters.AllKeys)
+        {
+            if (key is not null)
+            {
+                fields[key] = parameters[key]!;
+            }
+        }
+
+        var html = await page.Content.ReadAsStringAsync(cancellationToken);
+        return await PageForms.PostAsync(client, url, html, fields, cancellationToken);
+    }
+
     public static async Task<JsonElement> ExchangeAsync(
         HttpClient client,
         Dictionary<string, string> form,

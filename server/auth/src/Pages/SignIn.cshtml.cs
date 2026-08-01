@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using MyStack.Auth.Account;
 using MyStack.Auth.Data;
 using MyStack.Auth.Telemetry;
 
@@ -22,6 +23,9 @@ public sealed class SignInModel(
     [Required]
     public string? Password { get; set; }
 
+    [BindProperty]
+    public bool RememberMe { get; set; }
+
     [BindProperty(SupportsGet = true)]
     public string? ReturnUrl { get; set; }
 
@@ -38,14 +42,20 @@ public sealed class SignInModel(
 
         if (user is null)
         {
+            // The unknown-email path must cost what a wrong password costs — without this it
+            // returned before any PBKDF2 work, and the response time answered the question the
+            // page refuses to.
+            Decoys.VerifyPassword(userManager.PasswordHasher, Password!);
             metrics.SignIn("invalid_credentials");
             return Failed();
         }
 
+        // Session persistence is the person's call: unticked is a browser-session cookie,
+        // ticked survives the browser for the horizon pinned on the application cookie.
         var result = await signInManager.PasswordSignInAsync(
             user,
             Password!,
-            isPersistent: false,
+            isPersistent: RememberMe,
             lockoutOnFailure: true
         );
 

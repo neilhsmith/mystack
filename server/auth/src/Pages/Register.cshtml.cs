@@ -77,6 +77,11 @@ public sealed class RegisterModel(
         var existing = await users.FindByEmailAsync(Email!);
         if (existing is not null)
         {
+            // A fresh registration hashes the password on its way into CreateAsync; both
+            // existing-account paths hash one for nobody, so response time doesn't separate
+            // "new account" from "was already registered".
+            Decoys.HashPassword(users.PasswordHasher, Password!);
+
             // The page answer stays indistinguishable from a fresh registration. An unconfirmed
             // account gets its confirmation again — the "I registered but never clicked the
             // link" retry; a confirmed one gets nothing.
@@ -88,6 +93,8 @@ public sealed class RegisterModel(
             }
             else
             {
+                // The retry path also mints a confirmation token; equalize that too.
+                await Decoys.EmailConfirmationTokenAsync(users);
                 metrics.Registration("already_registered");
             }
 

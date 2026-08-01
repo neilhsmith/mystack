@@ -58,6 +58,8 @@ wire, with the worker running so the emails actually deliver.
 | `ConnectionStrings:MessageBroker` | none | Required, same no-fallback rule as the database: failing to boot beats silently dropping messages. |
 | `Messaging:RetryCooldownsInSeconds` | `[1, 5, 30]` | Seconds between redelivery attempts after a handler throws, one entry per retry; past the last one the message dead-letters. Tests set `[0]`. |
 | `Account:PublicBaseUrl` | none | Required, validated at boot as an absolute http(s) URL. Emailed confirm/reset links are built from it — never from the request's `Host` header, which is client-writable and would let a forged forgot-password request steer a victim's real reset link to an attacker's domain. |
+| `RateLimiting:WindowSeconds` | `60` | The fixed window every limit below counts within. All values validated positive at boot. |
+| `RateLimiting:SignIn` … `:Register`, `:ForgotPassword`, `:ResendConfirmation`, `:ChangePassword`, `:Verify` | `10` / `5` / `5` / `5` / `10` / `10` | Requests per window, per client IP, per endpoint — see Rate limiting under Security posture. |
 
 `appsettings.Development.json` carries the compose stack's connection string. Those are local
 infrastructure credentials, not secrets — every other environment supplies
@@ -169,6 +171,18 @@ tamperable in flight, and a confidential client authenticated before any page re
 browser client is *allowed* to push; a client seeded with
 `RequirePushedAuthorizationRequests: true` is *refused* plain front-channel authorize URLs
 entirely — the opt-in meant for the production BFF once it pushes.
+
+**Ending a session takes proof or confirmation.** `/connect/endsession` is a Razor page, like the
+verification page. A request whose `id_token_hint` OpenIddict validated is the client proving the
+sign-out is its own doing, and is honored without a prompt; anything less — a bare GET, one forced
+navigation — renders a confirmation page instead, because a single navigation must not end every
+app's session. The confirmation form echoes the request's own parameters, so the confirmed POST is
+the same logout request, re-validated: a registered `post_logout_redirect_uri` still gets its
+redirect (a bare sign-out lands on `/signed-out`), and an unregistered one is still refused with
+the session intact. Antiforgery is validated by hand rather than by the page filter, because a
+client's legitimate `form_post` logout request is itself a cross-site POST the filter would
+refuse — the validated hint takes the token's place as proof, and a hint-less POST without the
+token just gets the confirmation page again.
 
 **Sign-out propagates over the back channel** (OIDC Back-Channel Logout 1.0). Ending a session at
 `/connect/endsession` doesn't just clear auth's cookie: every registered client that declares a
@@ -287,11 +301,18 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 - **One generic failure message.** Unknown email, wrong password, unconfirmed account and lockout
   all read identically — anti-enumeration (architecture §3) — and the honest outcome goes to the
   `auth.sign_ins` metric tag instead.
+- **The unknown-email path does hash-shaped work.** A decoy PBKDF2 verification (hashed once with
+  the live hasher, so it always costs what a real one does), because before it the miss returned
+  ahead of any hashing and response time answered what the message won't.
 - **Lockout is on**: failed attempts count against Identity's defaults (five tries, five minutes).
+- **Session persistence is the person's call.** The cookie is a browser-session cookie unless
+  "Keep me signed in" is ticked; a remembered session lives 14 sliding days — the same order of
+  horizon as a refresh token, pinned explicitly so a framework-default change can't quietly
+  lengthen it.
 - **`ReturnUrl` is followed only when local.** It is attacker-writable, and an absolute URL there
   is a phishing redirect hanging off a legitimate sign-in.
-- The page runs under its own security-header policy, which differs from the default in exactly
-  one directive: `form-action 'self'`.
+- The page runs under the pages security-header policy (`form-action 'self'`,
+  `Cache-Control: no-store` — see Security posture).
 
 ## Account flows
 
@@ -336,7 +357,10 @@ generic page whether the address exists, is unconfirmed, or is already taken —
 validates password policy *before* the existence lookup, so a deliberately weak password can't
 probe either. Reset links go to confirmed addresses only: an unconfirmed address was never proven
 to belong to its registrant, and a reset link would leapfrog confirmation. The honest outcomes
-live in the metric tags. Change-password is the deliberate exception — the caller is already that
+live in the metric tags. **The timing matches the words**: the miss paths mint decoy tokens (and
+register's existing-account paths hash a decoy password) so latency doesn't separate hit from
+miss either; the hit path's database and broker writes remain a small accepted residual, with the
+rate limiter as the practical brake on measuring it. Change-password is the deliberate exception — the caller is already that
 account's session, so "incorrect password" reveals nothing. It is **not** exempt from lockout,
 though: the form verifies the current password, which makes it a guessing surface for a hijacked
 cookie, so wrong attempts count against the same five-strikes lockout the sign-in page enforces —
@@ -347,6 +371,31 @@ OpenIddict tokens and authorizations (refresh tokens on other devices die immedi
 tokens age out within 15 minutes), rotate the security stamp (other cookie sessions die at the
 next 5-minute check; the browser that made the change is refreshed and survives), and publish the
 password-changed notification to the account's address.
+
+## The rest of the browser surface
+
+The pages nothing redirects a client to, but every fallback lands on — functional now, designed
+in the design pass like the rest:
+
+| Page | Is |
+| --- | --- |
+| `/` | the default post-sign-in target and end-session fallback: who you're signed in as, links to change-password and sign-out; sign-in/register links when anonymous |
+| `/signed-out` | where a confirmed sign-out lands when no validated `post_logout_redirect_uri` says otherwise |
+| `/access-denied` | the cookie handler's `AccessDeniedPath` — an authenticated user a policy refused, arriving with a live session rather than a bare 403 |
+| `/error/{status}` | the error page, directly navigable and honest about the status it names |
+
+**Errors split on the Accept header.** A response reaching the edge with no body — an unmatched
+route's 404, the limiter's 429, an unhandled exception's 500 — is shaped by status-code-pages
+middleware: a navigating browser (`Accept: text/html`) gets `/error/{status}` re-executed in
+place, so the status survives where a redirect would launder it into a 200; everything else gets
+ProblemDetails, same as always. The split can't ride the default ProblemDetails writer's own
+accept check, because browsers say `*/*` and would be served JSON — so the exception handler
+applies the same test and deliberately leaves a browser's 500 empty for the shaping outside it.
+Rejected OIDC requests join in through OpenIddict's status-code-pages integration: a person
+stranded mid-flow by a misconfigured client sees the error page carrying the protocol's own
+`error_description`, an API caller gets ProblemDetails with the `error` code and description —
+protocol data the client would have been sent anyway. Anything that already wrote a body — a
+rendered page, a token endpoint's OAuth error JSON, a health payload — passes through untouched.
 
 ## Seeding
 
@@ -561,21 +610,48 @@ three tightenings:
 | `Cross-Origin-Embedder-Policy` | `require-corp` | baseline |
 
 The CSP is written for a host that serves no HTML. Rendered pages carry a second, named policy
-differing in exactly one directive — `form-action 'self'`, so the sign-in form can post back to
-itself — which is the right way round for the one deployable that holds credentials: the
-loosening is opt-in per endpoint, and the design pass widens `style-src` only when there is
-styling to allow. `Referrer-Policy` is `no-referrer` everywhere because confirmation and reset
-links carry a single-use credential in the query string.
+with exactly two deltas — `form-action 'self'`, so a rendered form can post back to itself, and
+`Cache-Control: no-store`, so bfcache, history and any shared cache can't re-show a
+credential-bearing page after sign-out — which is the right way round for the one deployable that
+holds credentials: the loosening is opt-in per endpoint, and the design pass widens `style-src`
+only when there is styling to allow. The default policy deliberately carries no `Cache-Control`:
+discovery and the JWKS are meant to be cached, and the token endpoint sets its own `no-store` per
+spec. `Referrer-Policy` is `no-referrer` everywhere because confirmation and reset links carry a
+single-use credential in the query string.
 
 HSTS is emitted by the library on https responses only, with localhost excluded — so development
 never sees it and no environment gate is needed. **Preload is off**: it puts the domain on a list
 shipped inside browsers and is painful to undo, so it is an operator's decision rather than a
 framework default. Kestrel's `Server` header is suppressed.
 
+### Rate limiting
+
+The endpoints that take credentials or drive email sit behind ASP.NET Core's rate limiter: fixed
+windows partitioned per client IP *and* per endpoint, counted by requests rather than outcomes,
+in front of authentication and antiforgery. Anti-enumeration made probing operator-visible (the
+metric tags); this makes it expensive — and it is also the practical brake on the timing residual
+and the device user-code space.
+
+| Endpoint | Limited | Default |
+| --- | --- | --- |
+| `/signin` | POST | 10 / minute / IP |
+| `/register` | POST | 5 |
+| `/forgot-password` | POST | 5 |
+| `/resend-confirmation` | POST | 5 |
+| `/change-password` | POST | 10 |
+| `/connect/verify` | GET *and* POST | 10 |
+
+The split is deliberate: the email-driving endpoints cost a third party an email per request, so
+they get the tighter budget; the credential-verifying ones only cost this host CPU. GETs stay
+free everywhere else — they render inert forms — but the verification page's entry form submits
+with GET, so the user-code space is probed with GETs and both methods count. Over the limit is a
+`429` with `Retry-After`, shaped like every other error (ProblemDetails, or the error page for a
+browser). Limits are configuration (`RateLimiting:*`, validated positive at boot); the state is
+in-memory per instance — right for the single-VPS topology, revisited if replicas arrive.
+
 ## Production hardening — open items
 
-Recorded as they appear, resolved in the auth-track's closing steps — the account-surface guards
-(step 14) or deploy prep (step 16).
+Recorded as they appear, resolved in deploy prep (auth-track 16).
 
 - **Forwarded headers are not configured.** Behind a TLS-terminating proxy `Request.Scheme` will be
   `http`, which OpenIddict's discovery document and redirect URI validation both care about — and
@@ -587,13 +663,3 @@ Recorded as they appear, resolved in the auth-track's closing steps — the acco
   encryption credentials deliberately — a certificate from the environment, never one generated
   on boot — and startup throws without them. Deciding the source (file, store, secret manager)
   belongs with the deployment topology (architecture D12).
-- **No rate limiting on the account endpoints.** The anti-enumeration posture makes probing
-  operator-visible (the metric tags) but nothing yet makes it expensive. An IP-partitioned
-  limiter over the anonymous account pages — register, forgot, resend, the sign-in POST — plus
-  `/change-password` and `/connect/verify` lands in the account-surface guards (auth-track 14).
-- **A timing residual on the anonymous account flows.** The response *shape* is constant, but
-  the hit path composes a token and an outbox write while the miss path only looks up a user, so
-  latency differs by existence. The queue already moved delivery off the request path; closing
-  the remaining gap (dummy work on the miss path, and a dummy hash on the sign-in page's
-  unknown-email path) lands in the account-surface guards (auth-track 14), with the rate limiter
-  as the practical brake.

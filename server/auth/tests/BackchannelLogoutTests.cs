@@ -39,8 +39,9 @@ public sealed class BackchannelLogoutTests(AuthAppFixture app)
         );
         signIn.StatusCode.ShouldBe(HttpStatusCode.Found);
 
-        var response = await client.GetAsync(
-            $"/connect/endsession?client_id={AuthAppFixture.ClientId}"
+        var response = await OAuth.EndSessionAsync(
+            client,
+            $"?client_id={AuthAppFixture.ClientId}"
                 + $"&post_logout_redirect_uri={Uri.EscapeDataString(AuthAppFixture.PostLogoutRedirectUri)}",
             cancellationToken
         );
@@ -91,7 +92,7 @@ public sealed class BackchannelLogoutTests(AuthAppFixture app)
         app.SecondRelyingParty.Clear();
 
         using var client = app.CreateFlowClient();
-        var response = await client.GetAsync("/connect/endsession", cancellationToken);
+        var response = await OAuth.EndSessionAsync(client, cancellationToken: cancellationToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         app.RelyingParty.Received.ShouldBeEmpty();
