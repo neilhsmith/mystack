@@ -1,0 +1,8 @@
+/* The app-facing stylesheet: what a React app imports. server/auth never uses this file — it
+ * imports theme.css alone, because these package imports need node_modules to resolve and the
+ * auth build runs the standalone Tailwind CLI with none. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "./theme.css";

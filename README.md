@@ -35,7 +35,9 @@ client-credentials grant for machine clients, introspection for confidential cal
 device authorization grant with its signed-in verification page, pushed authorization
 requests (PAR) with a per-client opt-in requirement, and back-channel logout delivering signed
 logout tokens to every registered client when a session ends — with the role, permission-claim
-and scope names shared through `server/shared/MyStack.Contracts`, one spelling for every server.
+and scope names shared through `server/shared/MyStack.Contracts`, one spelling for every server —
+plus the JS workspace: `packages/ui` with the shadcn (Base UI) components and the shared theme
+tokens every future frontend and auth's rendered pages style from.
 [docs/auth-track.md](docs/auth-track.md) is the working order for building `auth` to done, and
 [docs/architecture.md §7](docs/architecture.md) is the honest answer to "what is built?".
 
@@ -69,6 +71,10 @@ dotnet test server/MyStack.slnx      # every test project — needs Docker, the 
 dotnet csharpier format .            # format (CI runs `csharpier check .`)
 
 dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
+
+pnpm install                         # JS workspace deps (Node 26 + pnpm)
+pnpm format                          # prettier (CI runs `pnpm format:check`)
+pnpm typecheck                       # tsc --noEmit in every package
 ```
 
 CI runs exactly that as one required `gate` check. `main` is protected: PRs only, gate green,

@@ -10,8 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The single required check. It grows a JavaScript half when apps/web arrives, and an e2e job
-  # (which builds container images) stays separate from it.
+  # The single required check. An e2e job (which builds container images) stays separate from it.
   gate:
     runs-on: ubuntu-latest
     permissions:
@@ -31,6 +30,23 @@ jobs:
 
       - name: Validate compose file
         run: docker compose config --quiet
+
+      # The JavaScript half runs first: it finishes in seconds, the .NET half in minutes.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: JS format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - run: dotnet tool restore
 

@@ -40,7 +40,10 @@ replayable `conformance/` harness (not CI), its findings — per-client PKCE, th
 email leak, `email_verified`, `prompt=consent`, discovery truthfulness — fixed and pinned by
 tests — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
-spelled once for every app that speaks it.
+spelled once for every app that speaks it — and the JS workspace: pnpm + Prettier at the root,
+`packages/ui` holding the shadcn (Base UI) components imported wholesale and the shared
+`light-dark()` theme tokens (`theme.css`) that both the future React apps and auth's rendered
+pages style from.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
@@ -79,6 +82,10 @@ docker compose up -d                 # postgres + rabbitmq (mgmt UI :15672) + ma
 docker compose --profile otel up -d  # ... plus the telemetry dashboard (:18888)
 
 dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
+
+pnpm install                         # JS workspace deps
+pnpm format                          # prettier over apps/ + packages/; CI runs `pnpm format:check`
+pnpm typecheck                       # tsc --noEmit in every package
 ```
 
 ## Conventions
