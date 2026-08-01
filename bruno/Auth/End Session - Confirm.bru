@@ -1,0 +1,22 @@
+meta {
+  name: End Session - Confirm
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{auth_url}}/connect/endsession
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  __RequestVerificationToken: {{csrf}}
+}
+
+docs {
+  Submits the confirmation from "End Session - Load Confirmation": the cookie session ends,
+  registered clients get back-channel logout tokens, and the response is a 302 to /signed-out.
+  A forged POST — no antiforgery token, no validated hint — re-renders the confirmation instead
+  of signing out.
+}

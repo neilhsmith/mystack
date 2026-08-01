@@ -335,19 +335,36 @@ untouched; every new page wired and tested — the error page answering HTML acc
 accepts keep ProblemDetails, `/` no longer a 404, the hint-less end-session confirming instead of
 acting; and the sign-in miss path doing hash-shaped work.
 
-### 15. Design + finalize
+### 15a. Conformance + finalize sweep
+
+**Lands:** the OpenID Foundation Basic OP certification plan run against auth from a local,
+replayable harness — `conformance/` holds the compose override, plan config and run scripts,
+deliberately not CI: the suite's value is one-time discovery, and each finding became a
+permanent test instead. The findings, all fixed in the pass: PKCE rescoped per client (public
+mandatory, confidential exempt — RFC 9700's split; the global requirement made the Basic
+profile structurally unpassable), the `name` claim no longer disclosing the email across the
+scope boundary (`preferred_username` reserved for a future chosen username), `email_verified`
+minted from the record, `prompt=consent` accepted as satisfied (first-party implicit consent,
+D17 — OIDC §11 pairs it with `offline_access`, so rejecting it broke refresh-token requests
+from spec-following clients), and discovery telling the whole truth (`claims_supported`, an
+explicitly empty `request_object_signing_alg_values_supported`). The Bruno collection gained
+the end-session pair; the §3.2 grant-support-access note was verified already recorded in
+docs/auth.md.
+
+**Proves:** the full suite green, and the conformance plan's clean re-run on the fixed build —
+20 pass / 6 accepted warnings / 4 review / 5 skip / 0 fail, the accepted set documented in
+`conformance/README.md` and docs/auth.md.
+
+### 15b. Design + finalize
 
 **Lands:** every rendered page designed rather than scaffolded — sign in, register, forgot password,
 reset password, confirm email, device verification, and step 14's new pages (root, error, 404,
 signed-out, access-denied, the end-session confirmation); there is no consent page (architecture
 D17). The pages policy's CSP widened deliberately for the styling it now allows — `style-src
 'self'` (plus `img-src 'self'` if a logo lands), never `'unsafe-inline'`: everything comes from
-the emitted stylesheet. An accessibility pass over all of them. The Bruno collection committed.
-`docs/auth.md` finalized. A note recording that
-a grant-support-access endpoint is coming, so "auth is finished" doesn't quietly mean "auth is
-closed to impersonation" (plan §3.2's first seam).
+the emitted stylesheet. An accessibility pass over all of them. `docs/auth.md` finalized.
 
-**Proves:** the full suite green, a conformance-suite run, and an end-to-end walkthrough of the
+**Proves:** the full suite green, and an end-to-end walkthrough of the
 whole project until it is genuinely understood rather than merely working.
 
 > **Styling note for the design pass.** Tailwind works here without crossing the ecosystem

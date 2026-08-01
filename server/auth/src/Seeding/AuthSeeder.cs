@@ -307,8 +307,15 @@ internal sealed partial class AuthSeeder(
                 Permissions.GrantTypes.RefreshToken,
                 Permissions.ResponseTypes.Code,
             },
-            Requirements = { Requirements.Features.ProofKeyForCodeExchange },
         };
+
+        if (!confidential)
+        {
+            // The RFC 9700 split: a public client has no other defense against code injection,
+            // so PKCE is mandatory; a confidential client's nonce is the accepted alternative,
+            // and PKCE stays validated whenever one sends it anyway.
+            descriptor.Requirements.Add(Requirements.Features.ProofKeyForCodeExchange);
+        }
 
         if (client.RequirePushedAuthorizationRequests)
         {

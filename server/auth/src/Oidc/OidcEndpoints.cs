@@ -226,10 +226,13 @@ internal static class OidcEndpoints
     }
 
     private static object ClaimValue(Claim claim) =>
-        claim.ValueType is ClaimValueTypes.Integer64 or ClaimValueTypes.Integer32
-        && long.TryParse(claim.Value, out var number)
-            ? number
-            : claim.Value;
+        claim.ValueType switch
+        {
+            ClaimValueTypes.Integer64
+            or ClaimValueTypes.Integer32 when long.TryParse(claim.Value, out var number) => number,
+            ClaimValueTypes.Boolean when bool.TryParse(claim.Value, out var flag) => flag,
+            _ => claim.Value,
+        };
 
     private static IResult Forbid(string error, string description) =>
         Results.Forbid(

@@ -35,7 +35,10 @@ session ends — and the account-surface guards: IP-partitioned rate limiting ov
 credential/email endpoints, timing decoys on the anti-enumeration miss paths, `no-store` on
 rendered pages, the root/error/signed-out/access-denied pages with Accept-split error shaping
 (browsers get the error page, APIs keep ProblemDetails), the end-session confirmation page, and
-remember-me — and
+remember-me — and the conformance pass: the OpenID Foundation Basic OP plan run from the
+replayable `conformance/` harness (not CI), its findings — per-client PKCE, the `name`-claim
+email leak, `email_verified`, `prompt=consent`, discovery truthfulness — fixed and pinned by
+tests — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
 spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
@@ -100,7 +103,8 @@ dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migr
   handler.
 - **Keep EF entities off the wire.** Endpoints return DTOs.
 - **No password grant, in any environment.** Not for a dev client, not for an HTTP-client
-  collection. Authorization code + PKCE only.
+  collection. Authorization code only; PKCE is mandatory for every public client (confidential
+  clients may rely on their `nonce` instead — the RFC 9700 split).
 - **No tokens in localStorage or client JS.** The BFF holds them in an httpOnly cookie.
 - **User input that could be PII never travels in a URL.** Filter and search text goes in a POST
   body; anything sensitive in a logged body is `[Redact]`-masked.
