@@ -856,6 +856,9 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
       endpoints, timing decoys on the miss paths, `no-store` on rendered pages, the
       root/error/signed-out/access-denied pages with Accept-split error shaping, the end-session
       confirmation, remember-me
+- [x] **Conformance pass** — the OpenID Foundation Basic OP plan run against auth (`conformance/`
+      is the replayable harness), every finding fixed and pinned by a test: per-client PKCE,
+      the `name`-claim email leak, `email_verified`, `prompt=consent`, discovery truthfulness
 - [ ] **Design + finalize pass** — every rendered screen designed rather than scaffolded, walked
       through end to end, declared done (§3)
 - [x] **Permission override store** — grant/deny rows with `ExpiresAt`, minted into token claims (§3.1)

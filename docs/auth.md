@@ -684,6 +684,19 @@ with GET, so the user-code space is probed with GETs and both methods count. Ove
 browser). Limits are configuration (`RateLimiting:*`, validated positive at boot); the state is
 in-memory per instance — right for the single-VPS topology, revisited if replicas arrive.
 
+## Conformance
+
+The OpenID Foundation's **Basic OP certification plan** runs against this server from the
+replayable harness in [`conformance/`](../conformance/README.md) — suite checkout, prebuilt
+images, one compose override for the networking, the plan config, and run scripts. The
+auth-track 15a run finished **20 pass / 6 warnings / 4 review / 5 skip / 0 fail**; every
+warning is a documented deliberate posture (the `oi_*` bookkeeping claims, email riding the id
+token, the voluntary-claims profile subset, no `acr` taxonomy), tabulated in the harness
+README. Every real finding the first run surfaced was fixed and pinned by a test in
+`server/auth/tests` — per-client PKCE, the `name`-claim email leak, `email_verified`,
+`prompt=consent`, discovery truthfulness — which is why the suite is a documented procedure
+here rather than a CI job: its value is one-time discovery, and the tests keep what it taught.
+
 ## Production hardening — open items
 
 Recorded as they appear, resolved in deploy prep (auth-track 16).

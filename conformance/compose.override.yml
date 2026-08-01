@@ -1,0 +1,8 @@
+# Overlays the suite's own docker-compose-prebuilt.yml (see run-suite.sh). The suite's server
+# container reaches auth on the host by the same name the browser uses: auth.localtest.me
+# resolves to 127.0.0.1 in public DNS and to the host gateway in-container, so the issuer is
+# identical from both vantage points.
+services:
+  server:
+    extra_hosts:
+      - "auth.localtest.me:host-gateway"

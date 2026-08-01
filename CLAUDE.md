@@ -35,7 +35,10 @@ session ends — and the account-surface guards: IP-partitioned rate limiting ov
 credential/email endpoints, timing decoys on the anti-enumeration miss paths, `no-store` on
 rendered pages, the root/error/signed-out/access-denied pages with Accept-split error shaping
 (browsers get the error page, APIs keep ProblemDetails), the end-session confirmation page, and
-remember-me — and
+remember-me — and the conformance pass: the OpenID Foundation Basic OP plan run from the
+replayable `conformance/` harness (not CI), its findings — per-client PKCE, the `name`-claim
+email leak, `email_verified`, `prompt=consent`, discovery truthfulness — fixed and pinned by
+tests — and
 `server/shared/MyStack.Contracts`: the wire vocabulary (`AuthRoles`, `AuthClaims`, `ApiScopes`)
 spelled once for every app that speaks it.
 [docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.

@@ -1,0 +1,19 @@
+{
+  "alias": "mystack",
+  "description": "mystack auth - basic OP conformance",
+  "server": {
+    "discoveryUrl": "http://auth.localtest.me:5100/.well-known/openid-configuration"
+  },
+  "client": {
+    "client_id": "conformance",
+    "client_secret": "conformance-secret-one"
+  },
+  "client2": {
+    "client_id": "conformance-2",
+    "client_secret": "conformance-secret-two"
+  },
+  "client_secret_post": {
+    "client_id": "conformance",
+    "client_secret": "conformance-secret-one"
+  }
+}
