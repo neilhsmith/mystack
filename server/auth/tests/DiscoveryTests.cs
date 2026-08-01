@@ -45,13 +45,14 @@ public sealed class DiscoveryTests(AuthAppFixture app)
             .Select(method => method.GetString())
             .ShouldBe(["S256"]);
 
-        // Exactly what the authorize handler implements — advertising `consent` or
-        // `select_account` would promise behavior nothing here has.
+        // `select_account` would promise behavior nothing here has (one cookie session).
+        // `consent` is accepted as satisfied — first-party clients, implicit consent (D17) —
+        // because OIDC §11 clients send prompt=consent whenever they ask for offline_access.
         document
             .GetProperty("prompt_values_supported")
             .EnumerateArray()
             .Select(value => value.GetString())
-            .ShouldBe(["login", "none"], ignoreOrder: true);
+            .ShouldBe(["consent", "login", "none"], ignoreOrder: true);
 
         var scopes = document
             .GetProperty("scopes_supported")
@@ -61,6 +62,38 @@ public sealed class DiscoveryTests(AuthAppFixture app)
         scopes.ShouldContain("api.read");
         scopes.ShouldContain("api.write");
         scopes.ShouldContain("offline_access");
+
+        // The claims the tokens actually carry — the default advertises only the bare
+        // protocol five, underselling what a client can ask for.
+        var claims = document
+            .GetProperty("claims_supported")
+            .EnumerateArray()
+            .Select(claim => claim.GetString())
+            .ToList();
+        claims.ShouldBeSubsetOf([
+            "aud",
+            "exp",
+            "iat",
+            "iss",
+            "sub",
+            "email",
+            "email_verified",
+            "auth_time",
+            "role",
+        ]);
+        claims.ShouldContain("email");
+        claims.ShouldContain("email_verified");
+        claims.ShouldContain("auth_time");
+        claims.ShouldContain("role");
+
+        // Explicitly empty, not absent: an absent key invites the spec's SHOULD defaults
+        // (`none` + RS256), and clients would probe request objects this server rejects.
+        // PAR is the by-reference channel.
+        document
+            .GetProperty("request_object_signing_alg_values_supported")
+            .GetArrayLength()
+            .ShouldBe(0);
+        document.GetProperty("request_parameter_supported").GetBoolean().ShouldBeFalse();
     }
 
     [Fact]

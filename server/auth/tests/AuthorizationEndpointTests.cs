@@ -80,6 +80,55 @@ public sealed class AuthorizationEndpointTests(AuthAppFixture app)
         returnUrl.ShouldNotContain("prompt=login");
     }
 
+    // OIDC §11 clients send prompt=consent whenever they request offline_access. Every client
+    // here is first-party with implicit consent (D17), so the consent the prompt demands is
+    // already on file: the request proceeds — refresh token and all — instead of being
+    // rejected for naming a prompt no screen implements (auth-track 15's conformance run).
+    [Fact]
+    public async Task PromptConsent_WithOfflineAccess_IsSatisfiedByImplicitConsent()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"prompt-consent-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+        var signIn = await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            cancellationToken: cancellationToken
+        );
+        signIn.StatusCode.ShouldBe(HttpStatusCode.Found);
+
+        var (verifier, challenge) = OAuth.CreatePkcePair();
+        var response = await client.GetAsync(
+            OAuth.AuthorizeUrl(challenge, "openid offline_access") + "&prompt=consent",
+            cancellationToken
+        );
+
+        // Straight back to the client — no interstitial page of any kind.
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        var location = response.Headers.Location!.ToString();
+        location.ShouldStartWith(AuthAppFixture.RedirectUri);
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(location).Query);
+        query["error"].ShouldBeNull(query["error_description"]);
+
+        var tokens = await OAuth.ExchangeAsync(
+            client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = query["code"].ShouldNotBeNull(),
+                ["redirect_uri"] = AuthAppFixture.RedirectUri,
+                ["client_id"] = AuthAppFixture.ClientId,
+                ["code_verifier"] = verifier,
+            },
+            cancellationToken: cancellationToken
+        );
+
+        tokens.GetProperty("refresh_token").GetString().ShouldNotBeNullOrEmpty();
+    }
+
     [Fact]
     public async Task APublicClient_MissingPkce_IsRejected_BeforeAnyUserInteraction()
     {

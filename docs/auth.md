@@ -146,9 +146,15 @@ does). The conformance pass forced the split: a global requirement made the Basi
 whose tests legitimately omit PKCE — structurally unpassable, and was stricter than any spec
 asks. **S256 is the only accepted challenge method**: OpenIddict's default also takes `plain`,
 which is challenge == verifier and none of the interception protection PKCE exists for, so the
-hardening pass removed it. Discovery likewise advertises only the prompt
-values the authorize handler implements (`login`, `none`) — the defaults included `consent` and
-`select_account`, which nothing here honors. A machine client is
+hardening pass removed it. Discovery advertises prompt values `login`, `none` and `consent` —
+`select_account` is trimmed (one cookie session to select from), but `consent` is accepted as
+already satisfied: OIDC §11 clients send `prompt=consent` whenever they ask for
+`offline_access`, and every client here is first-party with implicit consent (D17), so
+rejecting the prompt would refuse exactly the refresh-token requests spec-following libraries
+make. Discovery also advertises `claims_supported` as the claims tokens actually carry, and an
+explicitly empty `request_object_signing_alg_values_supported`: absent, the key invites the
+spec's SHOULD defaults (`none` + RS256) and clients probe request objects this server rejects —
+PAR is the by-reference channel. A machine client is
 confidential by construction; its token carries the client's own identity — `sub` is the client
 id — and its granted scopes, and never a user claim, an id token or a refresh token. **There is
 no password grant, in any environment** — `grant_types_supported` in the discovery document is
@@ -242,9 +248,31 @@ against the discovery document rather than sharing auth's key material.
 **Userinfo answers exactly per granted scope.** `/connect/userinfo` rebuilds the principal
 through the same funnel token issuance uses and returns the claims whose destination includes the
 identity token — `sub` always, `auth_time` carried forward from the presented token, then
-`email`, `name` and `role` as their scopes were granted — so userinfo and the id token agree by
-construction and can never drift; `perm`/`perm_deny` stay out of both. A token with no user
-behind it — any machine token — gets `invalid_token`: there is nobody to describe.
+`email` + `email_verified` and `role` as their scopes were granted — so userinfo and the id token
+agree by construction and can never drift; `perm`/`perm_deny` stay out of both. A token with no
+user behind it — any machine token — gets `invalid_token`: there is nobody to describe.
+
+**The email travels under exactly one scope.** Identity mints the `name` claim from `UserName`,
+which is the email for every account — so until auth-track 15's conformance run, the `profile`
+scope quietly disclosed what only the `email` scope may release. `name` is now suppressed while
+the email is all it carries: a future chosen username ships as `preferred_username` (the OIDC
+claim for handles), and `name` waits for a real name field, if one ever exists. `email_verified`
+is minted from the record (`EmailConfirmed`) rather than from the sign-in policy, even though
+`RequireConfirmedEmail` makes it always true today — relying parties never have to know the
+policy exists. The rest of the `profile` bundle (`picture`, `locale`, `updated_at`, …) is
+deliberately absent: OIDC treats these as voluntary claims, and this server returns what it
+truthfully holds — each future profile attribute is one stored datum plus one destination line.
+
+**Scoped claims ride the id token as well as userinfo — deliberately.** The strictest reading of
+OIDC routes scope-requested claims through userinfo alone (the conformance suite warns about the
+id-token copy). They stay in both here, as Google and Microsoft ship them: the id token's
+audience is precisely the client the user consented to release the claims to, and the
+first-party BFF reads its session data from the id token without a userinfo round trip. The id
+token also carries `oi_tkn_id`/`oi_au_id` — OpenIddict's bookkeeping claims, opaque row ids with
+no PII, load-bearing for `id_token_hint` validation, revocation and the prune job; the
+conformance suite flags them as unrequested, and they are accepted as the cost of token storage.
+Requests for `acr_values` are ignored the same accepted-warning way: a single-method password OP
+has no honest assurance taxonomy to assert — `acr`/`amr` and step-up arrive with MFA, if ever.
 
 **Introspection is for confidential callers only.** `/connect/introspection` (RFC 7662) answers
 whether a token is live, for callers that can't validate JWTs locally. OpenIddict handles it
@@ -262,6 +290,9 @@ hardening items).
 **No consent screen** (architecture D17). Every v1 client is first-party and registered with
 implicit consent; the authorization endpoint refuses a client registered any other way, so a
 future third-party client forces the decision to be remade rather than silently inheriting it.
+`prompt=consent` is accepted, not rejected: the consent it demands is already on file by
+registration, so the request proceeds — which is what keeps `offline_access` reachable for
+spec-following clients (OIDC §11 pairs the two).
 
 **Clients come from seed configuration** (see Seeding): development declares `web-bff`, `bruno`,
 the `dev-machine` machine client and the `dev-device` device client in

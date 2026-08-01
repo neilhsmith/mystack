@@ -94,17 +94,45 @@ internal static class OidcExtensions
                 // this is what makes that true.
                 server.DisableSlidingRefreshTokenExpiration();
 
-                // Two default sets trimmed to what this server actually honors: `plain` PKCE is
-                // challenge == verifier — none of the interception protection PKCE exists for,
-                // and the one OAuth 2.1 deviation the review found — and discovery advertised
-                // prompt values (`consent`, `select_account`) nothing here implements: there is
-                // no consent screen (D17) and one cookie session to select from.
+                // Defaults tuned to what this server actually honors. `plain` PKCE is challenge
+                // == verifier — none of the interception protection PKCE exists for. Prompt
+                // `select_account` goes because there is one cookie session to select from —
+                // but `consent` stays accepted: OIDC §11 clients send prompt=consent whenever
+                // they ask for offline_access, and every client here is first-party with
+                // implicit consent (D17), so the consent it demands is already on file and the
+                // request proceeds. And claims_supported advertises what the tokens actually
+                // carry rather than the bare protocol default (auth-track 15's conformance run).
                 server.Configure(options =>
                 {
                     options.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain);
-                    options.PromptValues.Remove(PromptValues.Consent);
                     options.PromptValues.Remove(PromptValues.SelectAccount);
+                    options.Claims.UnionWith([
+                        Claims.Email,
+                        Claims.EmailVerified,
+                        Claims.AuthenticationTime,
+                        Claims.Role,
+                    ]);
                 });
+
+                // Absent, the key invites the spec's SHOULD defaults (`none` + RS256) — clients
+                // and the conformance suite then probe request objects we reject. Explicitly
+                // empty is the truth: no algorithms, no request objects; PAR is this server's
+                // by-reference channel. Added at the response stage with AddParameter because
+                // every earlier seam funnels through SetParameter, which silently removes empty
+                // parameters — and empty is the point.
+                server.AddEventHandler<OpenIddictServerEvents.ApplyConfigurationResponseContext>(
+                    handler =>
+                        handler.UseInlineHandler(context =>
+                        {
+                            context.Response.AddParameter(
+                                "request_object_signing_alg_values_supported",
+                                System.Text.Json.JsonSerializer.SerializeToElement(
+                                    Array.Empty<string>()
+                                )
+                            );
+                            return default;
+                        })
+                );
 
                 // `server/api` validates access tokens as plain JWTs against the discovery
                 // document; encrypted tokens would force it onto auth's key material instead.

@@ -46,6 +46,11 @@ internal static class TokenPrincipals
         // decisions. Null (an old stored principal without one) simply omits the claim.
         identity.SetClaim(Claims.AuthenticationTime, (long?)authenticatedAt?.ToUnixTimeSeconds());
 
+        // Always true today — RequireConfirmedEmail means an unverified account cannot sign in —
+        // but the claim is minted from the record rather than the policy, so relying parties
+        // never have to know the policy exists (conformance run, auth-track 15).
+        identity.SetClaim(Claims.EmailVerified, user.EmailConfirmed);
+
         foreach (var entry in overrides)
         {
             identity.AddClaim(
@@ -113,8 +118,19 @@ internal static class TokenPrincipals
             // or role anywhere. Access tokens are unencrypted JWTs, so they are not exempt from
             // data minimization just because the API is first-party — a client that wants the
             // claims asks for the scopes.
+            //
+            // Identity mints `name` from UserName — the email, for every account today — and
+            // the email may only ever leave under the `email` scope, so `name` is suppressed
+            // while that is all it carries. A future chosen username ships as
+            // `preferred_username`; `name` waits for a real name field (auth-track 15).
+            Claims.Name
+                when string.Equals(
+                    claim.Value,
+                    principal.GetClaim(Claims.Email),
+                    StringComparison.OrdinalIgnoreCase
+                ) => [],
             Claims.Name => WhenScoped(principal, Scopes.Profile),
-            Claims.Email => WhenScoped(principal, Scopes.Email),
+            Claims.Email or Claims.EmailVerified => WhenScoped(principal, Scopes.Email),
             Claims.Role => WhenScoped(principal, Scopes.Roles),
             // The id token is where OIDC requires auth_time, and RFC 9068 lists it among a JWT
             // access token's standard claims — the access-token copy is also what lets userinfo
