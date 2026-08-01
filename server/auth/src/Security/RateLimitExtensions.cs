@@ -95,7 +95,7 @@ internal static class RateLimitExtensions
     }
 
     // Kestrel always knows the peer; "unknown" only happens under TestServer, whose in-memory
-    // connections carry no address (the Testing host maps a header onto it instead).
+    // connections carry no address (the test suite maps its own onto the connection instead).
     private static string ClientKey(HttpContext context) =>
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 

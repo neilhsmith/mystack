@@ -1,4 +1,3 @@
-using System.Net;
 using MyStack.Auth.Account;
 using MyStack.Auth.Data;
 using MyStack.Auth.ErrorHandling;
@@ -54,24 +53,6 @@ builder.Services.AddAuthHealthChecks();
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
-
-if (app.Environment.IsEnvironment("Testing"))
-{
-    // TestServer's in-memory connections carry no client address, which would fold every test
-    // into one rate-limit partition; this maps a test-supplied header onto the connection so
-    // each test client is its own caller. Production trusts the socket.
-    app.Use(
-        (context, next) =>
-        {
-            if (IPAddress.TryParse(context.Request.Headers["X-Test-Client-Ip"], out var address))
-            {
-                context.Connection.RemoteIpAddress = address;
-            }
-
-            return next(context);
-        }
-    );
-}
 
 app.UseAuthSecurityHeaders();
 app.UseRequestLogging();

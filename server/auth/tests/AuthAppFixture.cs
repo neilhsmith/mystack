@@ -73,8 +73,9 @@ public sealed class AuthAppFixture : IAsyncLifetime
     /// <summary>
     /// A client that keeps cookies and surfaces redirects instead of following them — the shape
     /// every OAuth flow test needs, isolated per call so sessions don't bleed between tests.
-    /// Each client carries its own fake source address (the Testing host maps the header onto
-    /// the connection), so one test hammering a rate-limited endpoint can't starve another.
+    /// Each client carries its own fake source address (FakeClientIpStartupFilter maps the
+    /// header onto the connection), so one test hammering a rate-limited endpoint can't starve
+    /// another.
     /// </summary>
     public HttpClient CreateFlowClient()
     {
@@ -84,7 +85,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
         var n = Interlocked.Increment(ref flowClients);
         client.DefaultRequestHeaders.Add(
-            "X-Test-Client-Ip",
+            FakeClientIpStartupFilter.HeaderName,
             $"10.{(n >> 16) & 255}.{(n >> 8) & 255}.{n & 255}"
         );
 
@@ -174,7 +175,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
 
         // CreateClient is what builds the host, so the migration and the seed run here.
         Client = application.CreateClient();
-        Client.DefaultRequestHeaders.Add("X-Test-Client-Ip", "10.255.255.254");
+        Client.DefaultRequestHeaders.Add(FakeClientIpStartupFilter.HeaderName, "10.255.255.254");
     }
 
     public async ValueTask DisposeAsync()
