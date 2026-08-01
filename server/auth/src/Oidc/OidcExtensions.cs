@@ -61,13 +61,13 @@ internal static class OidcExtensions
                     .SetEndSessionEndpointUris("connect/endsession")
                     .SetRevocationEndpointUris("connect/revocation");
 
-                // Authorization code + PKCE with refresh tokens for humans, client credentials
-                // for machines, the device grant for clients without a browser or keyboard — and
-                // nothing else. No password grant, in any environment (architecture §3); PKCE is
-                // required globally rather than per client, so no future registration can
-                // quietly opt out. PAR is deliberately not required globally the same way:
-                // making it mandatory is a per-client requirement the seeder declares.
-                server.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
+                // Authorization code with refresh tokens for humans, client credentials for
+                // machines, the device grant for clients without a browser or keyboard — and
+                // nothing else. No password grant, in any environment (architecture §3). PKCE is
+                // a per-client requirement the seeder declares — mandatory for public clients,
+                // optional-but-validated for confidential ones, the RFC 9700 split (their nonce
+                // covers code injection) — like PAR's per-client opt-in below.
+                server.AllowAuthorizationCodeFlow();
                 server.AllowRefreshTokenFlow();
                 server.AllowClientCredentialsFlow();
                 server.AllowDeviceAuthorizationFlow();

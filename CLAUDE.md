@@ -100,7 +100,8 @@ dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migr
   handler.
 - **Keep EF entities off the wire.** Endpoints return DTOs.
 - **No password grant, in any environment.** Not for a dev client, not for an HTTP-client
-  collection. Authorization code + PKCE only.
+  collection. Authorization code only; PKCE is mandatory for every public client (confidential
+  clients may rely on their `nonce` instead — the RFC 9700 split).
 - **No tokens in localStorage or client JS.** The BFF holds them in an httpOnly cookie.
 - **User input that could be PII never travels in a URL.** Filter and search text goes in a POST
   body; anything sensitive in a logged body is `[Redact]`-masked.

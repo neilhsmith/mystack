@@ -137,12 +137,16 @@ reason Identity's were.
 | End session | `/connect/endsession` | passthrough: Identity sign-out, back-channel logout notifications, then the validated post-logout redirect |
 | Revocation | `/connect/revocation` | OpenIddict entirely |
 
-**Authorization code + PKCE with refresh tokens for humans, client credentials for machines, the
-device grant for clients without a browser — and no other flow.** PKCE is required globally
-rather than per client, so no future registration can quietly opt out — and **S256 is the only
-accepted challenge method**: OpenIddict's default also takes `plain`, which is challenge ==
-verifier and none of the interception protection PKCE exists for, so the hardening pass removed
-it (the one OAuth 2.1 deviation the review found). Discovery likewise advertises only the prompt
+**Authorization code with refresh tokens for humans, client credentials for machines, the
+device grant for clients without a browser — and no other flow.** PKCE follows the RFC 9700
+split, declared per client by the seeder: **mandatory for every public client** — their only
+defense against authorization-code injection — and optional for confidential clients, whose
+`nonce` is the accepted alternative (it stays validated whenever one sends it, and the BFF
+does). The conformance pass forced the split: a global requirement made the Basic OP profile —
+whose tests legitimately omit PKCE — structurally unpassable, and was stricter than any spec
+asks. **S256 is the only accepted challenge method**: OpenIddict's default also takes `plain`,
+which is challenge == verifier and none of the interception protection PKCE exists for, so the
+hardening pass removed it. Discovery likewise advertises only the prompt
 values the authorize handler implements (`login`, `none`) — the defaults included `consent` and
 `select_account`, which nothing here honors. A machine client is
 confidential by construction; its token carries the client's own identity — `sub` is the client

@@ -81,7 +81,7 @@ public sealed class AuthorizationEndpointTests(AuthAppFixture app)
     }
 
     [Fact]
-    public async Task MissingPkce_IsRejected_BeforeAnyUserInteraction()
+    public async Task APublicClient_MissingPkce_IsRejected_BeforeAnyUserInteraction()
     {
         using var client = app.CreateFlowClient();
 
@@ -97,5 +97,57 @@ public sealed class AuthorizationEndpointTests(AuthAppFixture app)
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         body.ShouldContain("invalid_request");
+    }
+
+    // The other half of the RFC 9700 split the seeder declares: PKCE is a public client's only
+    // defense against code injection, so it stays mandatory above — while a confidential
+    // client, whose nonce covers the same attack, completes the flow without one. The Basic OP
+    // conformance profile drives exactly this PKCE-less shape.
+    [Fact]
+    public async Task AConfidentialClient_CompletesTheCodeFlow_WithoutPkce()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var email = $"no-pkce-{Guid.NewGuid():N}@example.test";
+        await app.CreateUserAsync(email);
+
+        using var client = app.CreateFlowClient();
+
+        var url =
+            $"/connect/authorize?client_id={AuthAppFixture.ConfidentialClientId}"
+            + $"&redirect_uri={Uri.EscapeDataString(AuthAppFixture.RedirectUri)}"
+            + "&response_type=code&scope=openid%20email&state=xyz&nonce=n-1";
+
+        var signIn = await OAuth.SignInAsync(
+            client,
+            email,
+            AuthAppFixture.DefaultPassword,
+            url,
+            cancellationToken
+        );
+        signIn.StatusCode.ShouldBe(HttpStatusCode.Found);
+
+        var response = await client.GetAsync(url, cancellationToken);
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        var location = response.Headers.Location!.ToString();
+        location.ShouldStartWith(AuthAppFixture.RedirectUri);
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(location).Query);
+        query["error"].ShouldBeNull(query["error_description"]);
+        var code = query["code"].ShouldNotBeNull();
+
+        var tokens = await OAuth.ExchangeAsync(
+            client,
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = code,
+                ["redirect_uri"] = AuthAppFixture.RedirectUri,
+                ["client_id"] = AuthAppFixture.ConfidentialClientId,
+                ["client_secret"] = AuthAppFixture.ConfidentialClientSecret,
+            },
+            cancellationToken: cancellationToken
+        );
+
+        tokens.GetProperty("access_token").GetString().ShouldNotBeNullOrEmpty();
+        tokens.GetProperty("id_token").GetString().ShouldNotBeNullOrEmpty();
     }
 }
