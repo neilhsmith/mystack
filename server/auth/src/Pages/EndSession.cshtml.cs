@@ -27,10 +27,17 @@ public sealed class EndSessionModel(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     BackchannelLogoutNotifier backchannelLogout,
+    IOpenIddictApplicationManager applications,
     IAntiforgery antiforgery
 ) : PageModel
 {
     public IReadOnlyList<(string Name, string Value)> Parameters { get; private set; } = [];
+
+    // Where "Never mind" goes: the requesting client's registered client_uri when the request
+    // names one, else auth's own root. The client_id parameter is unauthenticated, but only a
+    // *registered* client's *registered* home page ever renders, so a forged link can do no
+    // worse than offer a legitimate app.
+    public string CancelUri { get; private set; } = "/";
 
     public async Task<IActionResult> OnGetAsync()
     {
@@ -39,7 +46,7 @@ public sealed class EndSessionModel(
             return await SignOutEverywhereAsync();
         }
 
-        CollectParameters();
+        await CollectParametersAsync();
         return Page();
     }
 
@@ -52,7 +59,7 @@ public sealed class EndSessionModel(
         {
             // A cross-site POST without proof is the forced sign-out the confirmation exists to
             // stop; re-render it — with a fresh token — rather than act.
-            CollectParameters();
+            await CollectParametersAsync();
             return Page();
         }
 
@@ -101,7 +108,7 @@ public sealed class EndSessionModel(
         return result.Principal?.GetClaim(Claims.Subject) is null ? null : result.Principal;
     }
 
-    private void CollectParameters()
+    private async Task CollectParametersAsync()
     {
         var request =
             HttpContext.GetOpenIddictServerRequest()
@@ -116,5 +123,21 @@ public sealed class EndSessionModel(
             .Where(parameter => !string.IsNullOrEmpty(parameter.Value))
             .Select(parameter => (parameter.Key, parameter.Value!))
             .ToList();
+
+        if (request.ClientId is { Length: > 0 } clientId)
+        {
+            var application = await applications.FindByClientIdAsync(clientId);
+            if (application is not null)
+            {
+                var settings = await applications.GetSettingsAsync(application);
+                if (
+                    settings.TryGetValue(ClientMetadata.ClientUriSetting, out var uri)
+                    && !string.IsNullOrEmpty(uri)
+                )
+                {
+                    CancelUri = uri;
+                }
+            }
+        }
     }
 }

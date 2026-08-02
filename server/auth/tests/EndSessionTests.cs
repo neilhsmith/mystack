@@ -177,4 +177,36 @@ public sealed class EndSessionTests(AuthAppFixture app)
         authorize.StatusCode.ShouldBe(HttpStatusCode.Found);
         authorize.Headers.Location!.ToString().ShouldStartWith(AuthAppFixture.RedirectUri);
     }
+
+    // "Never mind" goes where the registration vouches it can: the requesting client's
+    // client_uri when the request names a client that registered one, auth's own root when
+    // nothing better is known. An OP page never guesses at a destination.
+    [Fact]
+    public async Task Confirmation_CancelLinksToTheRequestingClientsHome()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var client = app.CreateFlowClient();
+
+        var confirmation = await client.GetAsync(
+            $"/connect/endsession?client_id={AuthAppFixture.ClientId}",
+            cancellationToken
+        );
+
+        confirmation.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var html = await confirmation.Content.ReadAsStringAsync(cancellationToken);
+        html.ShouldContain($"href=\"{AuthAppFixture.ClientHomeUri}\"");
+    }
+
+    [Fact]
+    public async Task Confirmation_WithoutAClient_CancelFallsBackToRoot()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var client = app.CreateFlowClient();
+
+        var confirmation = await client.GetAsync("/connect/endsession", cancellationToken);
+
+        confirmation.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var html = await confirmation.Content.ReadAsStringAsync(cancellationToken);
+        html.ShouldContain("href=\"/\"");
+    }
 }

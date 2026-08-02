@@ -38,6 +38,11 @@ internal sealed class SeedClient
     // session ends (OIDC Back-Channel Logout 1.0). Absent means the client is never notified.
     public string? BackchannelLogoutUri { get; init; }
 
+    // Browser clients only: the client's home page (RFC 7591's client_uri). Rendered pages use
+    // it to offer a way back to the app — the end-session cancel today; absent, they fall back
+    // to auth's own root.
+    public string? ClientUri { get; init; }
+
     // Required for a browser client, forbidden for a machine or device one.
     public IList<string> RedirectUris { get; init; } = [];
 

@@ -14,9 +14,9 @@ internal static class SecurityHeaderExtensions
         services
             .AddSecurityHeaderPolicies()
             .SetDefaultPolicy(policy => AddAuthPolicy(policy, selfFormAction: false))
-            // Two page-only deltas: form-action 'self' (a rendered form has to post back) and
-            // Cache-Control: no-store (a rendered page holds credentials). Everything else stays
-            // pinned; the design pass opens style-src if and when there is styling to allow.
+            // Three page-only deltas: form-action 'self' (a rendered form has to post back),
+            // style-src 'self' (the pages link one same-origin stylesheet — never
+            // 'unsafe-inline'), and Cache-Control: no-store (a rendered page holds credentials).
             .AddPolicy(PagesPolicy, policy => AddAuthPolicy(policy, selfFormAction: true));
 
         return services;
@@ -42,6 +42,7 @@ internal static class SecurityHeaderExtensions
                 if (selfFormAction)
                 {
                     formAction.Self();
+                    csp.AddStyleSrc().Self();
                 }
                 else
                 {

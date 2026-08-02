@@ -1,50 +1,57 @@
 @page "/connect/verify"
 @model MyStack.Auth.Pages.VerifyModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Connect a device</title>
-</head>
-<body>
-    <main>
-        <h1>Connect a device</h1>
-        @if (Model.Done == "approved")
+@{
+    ViewData["Title"] = "Connect a device";
+}
+<div class="grid gap-1 px-4 text-center">
+    <h1 class="text-lg leading-snug font-semibold tracking-tight">Connect a device</h1>
+    @if (Model.Done == "approved")
+    {
+        <p role="status" class="text-muted-foreground text-sm">Device connected. You can return to your device — it will finish signing in on its own.</p>
+    }
+    else if (Model.Done == "denied")
+    {
+        <p role="status" class="text-muted-foreground text-sm">Request denied. The device was not signed in.</p>
+    }
+    else if (Model.UserCode is not null)
+    {
+        <p class="text-muted-foreground text-sm"><strong class="text-foreground font-medium">@(Model.ClientName ?? "A device")</strong> is asking to sign in as you.</p>
+        @if (Model.Scopes.Count > 0)
         {
-            <p role="status">Device connected. You can return to your device — it will finish signing in on its own.</p>
+            <p class="text-muted-foreground text-sm">It is requesting: @string.Join(", ", Model.Scopes)</p>
         }
-        else if (Model.Done == "denied")
-        {
-            <p role="status">Request denied. The device was not signed in.</p>
-        }
-        else if (Model.UserCode is not null)
-        {
-            <p><strong>@(Model.ClientName ?? "A device")</strong> is asking to sign in as you.</p>
-            @if (Model.Scopes.Count > 0)
-            {
-                <p>It is requesting: @string.Join(", ", Model.Scopes)</p>
-            }
-            <form method="post">
-                <input type="hidden" name="user_code" value="@Model.UserCode" />
-                <button type="submit" asp-page-handler="Approve">Approve</button>
-                <button type="submit" asp-page-handler="Deny">Deny</button>
-            </form>
-        }
-        else
-        {
-            @if (Model.Error is not null)
-            {
-                <p role="alert">@Model.Error</p>
-            }
-            <form method="get">
-                <div>
-                    <label for="user_code">Enter the code shown on your device</label>
-                    <input id="user_code" name="user_code" type="text" autocomplete="one-time-code" autofocus required />
-                </div>
-                <button type="submit">Continue</button>
-            </form>
-        }
-    </main>
-</body>
-</html>
+    }
+    else
+    {
+        <p class="text-muted-foreground text-sm">Enter the code shown on your device to continue.</p>
+    }
+</div>
+@if (Model.Done is null && Model.UserCode is not null)
+{
+    <form method="post" class="grid grid-cols-2 gap-2 px-4">
+        <input type="hidden" name="user_code" value="@Model.UserCode" />
+        <button type="submit" asp-page-handler="Approve"
+                class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Approve</button>
+        <button type="submit" asp-page-handler="Deny"
+                class="border-border bg-background hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Deny</button>
+    </form>
+}
+else if (Model.Done is null)
+{
+    @if (Model.Error is not null)
+    {
+        <div class="px-4">
+            <p role="alert" class="text-destructive rounded-lg border px-2.5 py-2 text-sm">@Model.Error</p>
+        </div>
+    }
+    <form method="get" class="grid gap-4 px-4">
+        <div class="grid gap-2">
+            <label for="user_code" class="text-sm leading-none font-medium select-none">Device code</label>
+            <input id="user_code" name="user_code" type="text" autocomplete="one-time-code" autofocus required
+                   autocapitalize="characters" spellcheck="false"
+                   class="border-input h-10 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-center font-mono text-lg tracking-[0.25em] uppercase transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30" />
+        </div>
+        <button type="submit"
+                class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Continue</button>
+    </form>
+}

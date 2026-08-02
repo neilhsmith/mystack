@@ -16,6 +16,7 @@ public sealed class AuthAppFixture : IAsyncLifetime
     public const string ClientId = "test-client";
     public const string RedirectUri = "http://localhost/callback";
     public const string PostLogoutRedirectUri = "http://localhost/signed-out";
+    public const string ClientHomeUri = "http://localhost/app-home";
     public const string AdminEmail = "admin@mystack.test";
     public const string DefaultPassword = "a perfectly adequate passphrase";
 

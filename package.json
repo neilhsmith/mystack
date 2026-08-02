@@ -3,13 +3,16 @@
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "scripts": {
+    "build:css": "tailwindcss -i server/auth/src/Styles/app.css -o server/auth/src/wwwroot/app.css --minify",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm --recursive typecheck"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "prettier": "^3.8.3",
-    "prettier-plugin-tailwindcss": "^0.8.0"
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4.3.3"
   },
   "prettier": {
     "plugins": [

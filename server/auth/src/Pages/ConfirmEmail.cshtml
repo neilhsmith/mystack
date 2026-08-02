@@ -1,40 +1,45 @@
 @page "/confirm-email"
 @model MyStack.Auth.Pages.ConfirmEmailModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Confirm your email</title>
-</head>
-<body>
-    <main>
-        @if (Model.Confirmed)
-        {
-            <h1>Email confirmed</h1>
-            <p>Your account is active. <a href="/signin">Sign in</a></p>
-        }
-        else if (Model.AlreadyConfirmed)
-        {
-            <h1>Already confirmed</h1>
-            <p>This email address was already confirmed. <a href="/signin">Sign in</a></p>
-        }
-        else if (Model.Failed)
-        {
-            <h1>Confirmation failed</h1>
-            <p>The confirmation link is invalid or has expired.</p>
-            <p><a href="/resend-confirmation">Request a new confirmation email</a></p>
-        }
-        else
-        {
-            <h1>Confirm your email</h1>
-            <p>Press the button to confirm your email address and activate your account.</p>
-            <form method="post">
-                <input asp-for="UserId" type="hidden" />
-                <input asp-for="Token" type="hidden" />
-                <button type="submit">Confirm my email</button>
-            </form>
-        }
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = Model.Confirmed ? "Email confirmed"
+        : Model.AlreadyConfirmed ? "Already confirmed"
+        : Model.Failed ? "Confirmation failed"
+        : "Confirm your email";
+}
+@if (Model.Confirmed)
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Email confirmed</h1>
+        <p class="text-muted-foreground text-sm">Your account is active.</p>
+    </div>
+    <p class="text-muted-foreground px-4 text-center text-sm"><a href="/signin" class="text-foreground font-medium underline underline-offset-4">Sign in</a></p>
+}
+else if (Model.AlreadyConfirmed)
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Already confirmed</h1>
+        <p class="text-muted-foreground text-sm">This email address was already confirmed.</p>
+    </div>
+    <p class="text-muted-foreground px-4 text-center text-sm"><a href="/signin" class="text-foreground font-medium underline underline-offset-4">Sign in</a></p>
+}
+else if (Model.Failed)
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Confirmation failed</h1>
+        <p class="text-muted-foreground text-sm">The confirmation link is invalid or has expired.</p>
+    </div>
+    <p class="text-muted-foreground px-4 text-center text-sm"><a href="/resend-confirmation" class="text-foreground font-medium underline underline-offset-4">Request a new confirmation email</a></p>
+}
+else
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Confirm your email</h1>
+        <p class="text-muted-foreground text-sm">Press the button to confirm your email address and activate your account.</p>
+    </div>
+    <form method="post" class="grid gap-4 px-4">
+        <input asp-for="UserId" type="hidden" />
+        <input asp-for="Token" type="hidden" />
+        <button type="submit"
+                class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Confirm my email</button>
+    </form>
+}

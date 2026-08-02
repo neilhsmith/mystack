@@ -1,24 +1,18 @@
 @page "/connect/endsession"
 @model MyStack.Auth.Pages.EndSessionModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sign out</title>
-</head>
-<body>
-    <main>
-        <h1>Sign out?</h1>
-        <p>This signs you out of your account and every app using it.</p>
-        <form method="post">
-            @foreach (var parameter in Model.Parameters)
-            {
-                <input type="hidden" name="@parameter.Name" value="@parameter.Value" />
-            }
-            <button type="submit">Sign out</button>
-        </form>
-        <p><a href="/">Never mind</a></p>
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = "Sign out";
+}
+<div class="grid gap-1 px-4 text-center">
+    <h1 class="text-lg leading-snug font-semibold tracking-tight">Sign out?</h1>
+    <p class="text-muted-foreground text-sm">This signs you out of your account and every app using it.</p>
+</div>
+<form method="post" class="grid gap-4 px-4">
+    @foreach (var parameter in Model.Parameters)
+    {
+        <input type="hidden" name="@parameter.Name" value="@parameter.Value" />
+    }
+    <button type="submit"
+            class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Sign out</button>
+</form>
+<p class="text-muted-foreground px-4 text-center text-sm"><a href="@Model.CancelUri" class="text-foreground font-medium underline underline-offset-4">Never mind</a></p>

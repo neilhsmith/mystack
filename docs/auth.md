@@ -47,7 +47,7 @@ wire, with the worker running so the emails actually deliver.
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
 | `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
-| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests` and `BackchannelLogoutUri`. What a client may *do* is fixed in code; see Seeding. |
+| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests`, `BackchannelLogoutUri` and `ClientUri` (the app's home page, RFC 7591 — rendered pages use it to offer a way back). What a client may *do* is fixed in code; see Seeding. |
 | `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
@@ -170,8 +170,7 @@ demands a user before rendering anything — enters the code (or arrives with it
 Approval runs the same principal funnel as every sign-in, so the device's tokens carry the
 user's roles and permission overrides like any other; denial turns the device's next poll into
 `access_denied`. Both codes live for `Oidc:UserCodeLifetime` / `Oidc:DeviceCodeLifetime`
-(15 minutes each) and are single-use. The verification page is functional now and designed in
-the design + finalize pass, like the sign-in page.
+(15 minutes each) and are single-use.
 
 **PAR moves authorize parameters off the URL** (RFC 9126). A client may POST its authorization
 request — scope, redirect, PKCE challenge, state — to `/connect/par` over the back channel and
@@ -192,7 +191,11 @@ redirect (a bare sign-out lands on `/signed-out`), and an unregistered one is st
 the session intact. Antiforgery is validated by hand rather than by the page filter, because a
 client's legitimate `form_post` logout request is itself a cross-site POST the filter would
 refuse — the validated hint takes the token's place as proof, and a hint-less POST without the
-token just gets the confirmation page again.
+token just gets the confirmation page again. The confirmation's cancel goes where the
+registration vouches it can: the requesting client's seeded `client_uri` when the request names
+one, auth's own root otherwise — the parameter is unauthenticated, but only a registered
+client's registered home page ever renders, so a forged link can do no worse than offer a
+legitimate app.
 
 **Sign-out propagates over the back channel** (OIDC Back-Channel Logout 1.0). Ending a session at
 `/connect/endsession` doesn't just clear auth's cookie: every registered client that declares a
@@ -326,10 +329,47 @@ passthrough and every refresh alike — reads the subject's live rows and mints 
   (architecture §3.2) is designed as a sibling row — subject, expiry, audit trail — so building
   it later extends this pattern rather than inventing a new one.
 
+## The rendered pages
+
+Thirteen Razor pages share one design: a centered card on a quiet background — text wordmark
+above, one-line footer below, no app chrome — the shape hosted login pages have because trust
+reads as quiet. One `Pages/Shared/_Layout.cshtml` owns the document; each page contributes its
+heading, body and per-state `<title>`.
+
+**The theme is the repo's one token file.** `Styles/app.css` `@import`s
+`packages/ui/src/styles/theme.css` — the same `light-dark()` tokens the React apps build from —
+and `@source`s the Pages; `pnpm build:css` compiles it with the Tailwind CLI into the committed
+`wwwroot/app.css`, which the gate regenerates and diffs so it can never drift from its source.
+Generated, never hand-edited. The visual language is the shadcn (Base UI) recipes expressed as
+utility classes in the markup, so these server pages and the future React apps read as one
+product, and the eventual design-system pass restyles everything by editing tokens.
+
+**Light and dark ship together, without JavaScript.** The tokens carry both palettes in
+`light-dark()` values and `color-scheme: light dark` follows the OS preference natively; a
+`.light`/`.dark` class on `<html>` can force a side when a stored preference exists to honor
+(parked for the BFF's theme cookie). The pages load one same-origin stylesheet and no script,
+no font files (the system stack), no images (the wordmark is text) — the CSP consequences are
+in Security posture.
+
+**Navigation is never a guess.** A link on an OP page is either part of the flow the user is in
+(sign in ↔ register ↔ the forgot/confirm chains), or a return the client's registration vouches
+for. Terminal pages — error, access denied — offer no navigation at all: the browser's back
+button and the app that sent the user are the honest exits, and a "back to safety" link to
+auth's own root would just relocate the dead end. The end-session confirmation's cancel is the
+one place a destination must exist, and it prefers the requesting client's registered
+`client_uri` (seeded per client), falling back to auth's root only when no client is named.
+
+**Accessibility is part of the contract.** Every input is labelled and carries the right
+`autocomplete` token (`username`, `current-password`, `new-password`, `one-time-code`); an
+invalid postback renders an error summary that receives focus (`tabindex="-1" autofocus`,
+`role="alert"`) and anchor-links each field error to its input; fields carry `aria-invalid` and
+`aria-describedby` pointing at their message; focus is always visible via the recipes'
+`:focus-visible` rings; both palettes hold WCAG 2.2 AA contrast; titles are unique per page and
+state.
+
 ## The sign-in page
 
-`/signin`, a Razor page — functional now, designed in the design + finalize pass at the end of
-the track. It signs into Identity's
+`/signin`, a Razor page. It signs into Identity's
 application cookie; the authorization endpoint challenges to it and the round trip lands back on
 the interrupted request (with `prompt=login` stripped, so honoring that prompt can't loop).
 
@@ -347,11 +387,11 @@ the interrupted request (with `prompt=login` stripped, so honoring that prompt c
 - **`ReturnUrl` is followed only when local.** It is attacker-writable, and an absolute URL there
   is a phishing redirect hanging off a legitimate sign-in.
 - The page runs under the pages security-header policy (`form-action 'self'`,
-  `Cache-Control: no-store` — see Security posture).
+  `style-src 'self'`, `Cache-Control: no-store` — see Security posture).
 
 ## Account flows
 
-Six Razor pages — functional now, designed in the finalize pass:
+Six Razor pages:
 
 | Page | Who | Does |
 | --- | --- | --- |
@@ -409,8 +449,7 @@ password-changed notification to the account's address.
 
 ## The rest of the browser surface
 
-The pages nothing redirects a client to, but every fallback lands on — functional now, designed
-in the design pass like the rest:
+The pages nothing redirects a client to, but every fallback lands on:
 
 | Page | Is |
 | --- | --- |
@@ -645,11 +684,12 @@ three tightenings:
 | `Cross-Origin-Embedder-Policy` | `require-corp` | baseline |
 
 The CSP is written for a host that serves no HTML. Rendered pages carry a second, named policy
-with exactly two deltas — `form-action 'self'`, so a rendered form can post back to itself, and
+with exactly three deltas — `form-action 'self'`, so a rendered form can post back to itself,
+`style-src 'self'`, for the one same-origin stylesheet the pages link (never `'unsafe-inline'`,
+and no `font-src` or `img-src`: the type is the system stack and the wordmark is text), and
 `Cache-Control: no-store`, so bfcache, history and any shared cache can't re-show a
 credential-bearing page after sign-out — which is the right way round for the one deployable that
-holds credentials: the loosening is opt-in per endpoint, and the design pass widens `style-src`
-only when there is styling to allow. The default policy deliberately carries no `Cache-Control`:
+holds credentials: the loosening is opt-in per endpoint. The default policy deliberately carries no `Cache-Control`:
 discovery and the JWKS are meant to be cached, and the token endpoint sets its own `no-store` per
 spec. `Referrer-Policy` is `no-referrer` everywhere because confirmation and reset links carry a
 single-use credential in the query string.

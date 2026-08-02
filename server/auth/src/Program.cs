@@ -61,6 +61,8 @@ app.UseRequestLogging();
 // status-code shaping and the exception handler, ordered as the extension explains.
 app.UseAuthErrorHandling();
 
+app.UseStaticFiles();
+
 // Explicit rather than implicit routing: the error-page re-execution has to re-match the
 // request, so the matcher must sit inside the status-code shaping.
 app.UseRouting();

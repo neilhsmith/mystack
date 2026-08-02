@@ -1,42 +1,47 @@
 @page "/register"
 @model MyStack.Auth.Pages.RegisterModel
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Create an account</title>
-</head>
-<body>
-    <main>
-        @if (Model.Registered)
-        {
-            <h1>Check your email</h1>
-            <p>If that address is valid, we've sent a confirmation email. Open it and confirm to
-                activate the account.</p>
-            <p>Nothing arrived? <a href="/resend-confirmation">Resend the confirmation</a>.</p>
-        }
-        else
-        {
-            <h1>Create an account</h1>
-            <form method="post">
-                <div asp-validation-summary="All" role="alert"></div>
-                <div>
-                    <label asp-for="Email">Email</label>
-                    <input asp-for="Email" type="email" autocomplete="username" required />
-                </div>
-                <div>
-                    <label asp-for="Password">Password</label>
-                    <input asp-for="Password" type="password" autocomplete="new-password" required />
-                </div>
-                <div>
-                    <label asp-for="ConfirmPassword">Confirm password</label>
-                    <input asp-for="ConfirmPassword" type="password" autocomplete="new-password" required />
-                </div>
-                <button type="submit">Create account</button>
-            </form>
-            <p>Already have an account? <a href="/signin">Sign in</a></p>
-        }
-    </main>
-</body>
-</html>
+@{
+    ViewData["Title"] = Model.Registered ? "Check your email" : "Create an account";
+}
+@if (Model.Registered)
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Check your email</h1>
+        <p class="text-muted-foreground text-sm">If that address is valid, we've sent a confirmation email. Open it and confirm to activate the account.</p>
+    </div>
+    <p class="text-muted-foreground px-4 text-center text-sm">Nothing arrived? <a href="/resend-confirmation" class="text-foreground font-medium underline underline-offset-4">Resend the confirmation</a></p>
+}
+else
+{
+    <div class="grid gap-1 px-4 text-center">
+        <h1 class="text-lg leading-snug font-semibold tracking-tight">Create an account</h1>
+        <p class="text-muted-foreground text-sm">One account for every MyStack app.</p>
+    </div>
+    <form method="post" class="grid gap-4 px-4">
+        <partial name="_ErrorSummary" />
+        <div class="grid gap-2">
+            <label asp-for="Email" class="text-sm leading-none font-medium select-none">Email</label>
+            <input asp-for="Email" type="email" autocomplete="username" required
+                   aria-invalid="@ViewData.ModelState.AriaInvalid("Email")" aria-describedby="Email-error"
+                   class="border-input h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base md:text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40" />
+            <p asp-validation-for="Email" id="Email-error" class="text-destructive text-sm empty:hidden"></p>
+        </div>
+        <div class="grid gap-2">
+            <label asp-for="Password" class="text-sm leading-none font-medium select-none">Password</label>
+            <input asp-for="Password" type="password" autocomplete="new-password" required
+                   aria-invalid="@ViewData.ModelState.AriaInvalid("Password")" aria-describedby="Password-error"
+                   class="border-input h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base md:text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40" />
+            <p asp-validation-for="Password" id="Password-error" class="text-destructive text-sm empty:hidden"></p>
+        </div>
+        <div class="grid gap-2">
+            <label asp-for="ConfirmPassword" class="text-sm leading-none font-medium select-none">Confirm password</label>
+            <input asp-for="ConfirmPassword" type="password" autocomplete="new-password" required
+                   aria-invalid="@ViewData.ModelState.AriaInvalid("ConfirmPassword")" aria-describedby="ConfirmPassword-error"
+                   class="border-input h-8 w-full min-w-0 rounded-lg border bg-transparent px-2.5 py-1 text-base md:text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40" />
+            <p asp-validation-for="ConfirmPassword" id="ConfirmPassword-error" class="text-destructive text-sm empty:hidden"></p>
+        </div>
+        <button type="submit"
+                class="bg-primary text-primary-foreground hover:bg-primary/80 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-transparent bg-clip-padding px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px">Create account</button>
+    </form>
+    <p class="text-muted-foreground px-4 text-center text-sm">Already have an account? <a href="/signin" class="text-foreground font-medium underline underline-offset-4">Sign in</a></p>
+}

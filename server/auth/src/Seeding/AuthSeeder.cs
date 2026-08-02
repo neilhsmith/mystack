@@ -341,6 +341,16 @@ internal sealed partial class AuthSeeder(
             descriptor.Permissions.Add(Permissions.Endpoints.Introspection);
         }
 
+        if (client.ClientUri is { Length: > 0 } clientUri)
+        {
+            // Same settings-bag ride as the back-channel logout URI: OpenIddict has no
+            // first-class client_uri, and the rendered pages read it back per client.
+            descriptor.Settings[ClientMetadata.ClientUriSetting] = ParseUri(
+                client.ClientId,
+                clientUri
+            ).AbsoluteUri;
+        }
+
         foreach (var uri in client.RedirectUris)
         {
             descriptor.RedirectUris.Add(ParseUri(client.ClientId, uri));
@@ -380,6 +390,7 @@ internal sealed partial class AuthSeeder(
             client,
             "no user ever signs in through a machine client, so there is no session to end"
         );
+        ThrowIfClientUri(client, "no browser ever renders a page for a machine client");
 
         // Always confidential — the secret is the entire authentication story — and no consent
         // type: consent is a user concept, and no user ever appears in this flow.
@@ -426,6 +437,11 @@ internal sealed partial class AuthSeeder(
         ThrowIfBackchannelLogoutUri(
             client,
             "a device-flow client has no server endpoint to receive the notification"
+        );
+        ThrowIfClientUri(
+            client,
+            "the device flow's pages identify the client by display name, and no page offers "
+                + "a way back to a TV"
         );
 
         // Implicit consent even though the verification page shows an approve button: that
@@ -475,6 +491,16 @@ internal sealed partial class AuthSeeder(
             throw new InvalidOperationException(
                 $"Client '{client.ClientId}' declares a BackchannelLogoutUri, but {reason}. "
                     + "Remove it."
+            );
+        }
+    }
+
+    private static void ThrowIfClientUri(SeedClient client, string reason)
+    {
+        if (!string.IsNullOrEmpty(client.ClientUri))
+        {
+            throw new InvalidOperationException(
+                $"Client '{client.ClientId}' declares a ClientUri, but {reason}. Remove it."
             );
         }
     }

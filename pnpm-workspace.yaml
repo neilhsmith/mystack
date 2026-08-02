@@ -1,3 +1,7 @@
 packages:
   - apps/*
   - packages/*
+# The CLI's watch-mode dep ships prebuilt binaries; its install script is a source-build
+# fallback we never need, so it stays unapproved.
+allowBuilds:
+  "@parcel/watcher": false
