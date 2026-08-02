@@ -41,6 +41,7 @@ internal sealed class AuthApplicationFactory(
         // do — as seed configuration — so every flow test runs against a seeded client.
         builder.UseSetting("Seed:Clients:0:ClientId", AuthAppFixture.ClientId);
         builder.UseSetting("Seed:Clients:0:Type", "Public");
+        builder.UseSetting("Seed:Clients:0:ClientUri", AuthAppFixture.ClientHomeUri);
         builder.UseSetting("Seed:Clients:0:RedirectUris:0", AuthAppFixture.RedirectUri);
         builder.UseSetting(
             "Seed:Clients:0:PostLogoutRedirectUris:0",

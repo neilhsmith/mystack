@@ -320,6 +320,38 @@ public sealed class SeedingTests(AuthAppFixture app)
             .ShouldContain(message => message.Contains("BackchannelLogoutUri"));
     }
 
+    // client_uri is likewise browser-only: it exists so a rendered page can offer a way back
+    // to the app, and no page ever renders for these client shapes.
+    [Fact]
+    public void MachineClientWithAClientUri_FailsStartup()
+    {
+        using var factory = Factory(
+            app.DatabaseConnectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:1:ClientUri"] = "http://localhost/home",
+            }
+        );
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains("ClientUri"));
+    }
+
+    [Fact]
+    public void DeviceClientWithAClientUri_FailsStartup()
+    {
+        using var factory = Factory(
+            app.DatabaseConnectionString,
+            new Dictionary<string, string?>
+            {
+                ["Seed:Clients:2:ClientUri"] = "http://localhost/home",
+            }
+        );
+
+        MessagesOf(Should.Throw<Exception>(() => factory.CreateClient()))
+            .ShouldContain(message => message.Contains("ClientUri"));
+    }
+
     // Every misdeclared client shape the seeder refuses, one theory row each: failing to boot
     // beats booting wrong (§3.4). Shared database — the failed seed rolls back (class comment).
     public static TheoryData<string, string, string, string?> Misdeclarations =>

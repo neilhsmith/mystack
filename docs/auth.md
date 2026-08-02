@@ -47,7 +47,7 @@ wire, with the worker running so the emails actually deliver.
 | `ConnectionStrings:AuthDb` | none | Required. Startup throws without it — there is deliberately no fallback, because a default here would be a credential compiled into the binary. |
 | `Database:Migrate` | `false` | Applies pending migrations before the host serves. On in development; a deployment applies migrations as its own step. |
 | `Database:Seed` | `true` | One safe seed pass before the host serves — roles/scopes from code, clients/accounts from config. Safe to leave on everywhere (writes only on real drift); off is the escape hatch for an organisation managing clients out of band. |
-| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests` and `BackchannelLogoutUri`. What a client may *do* is fixed in code; see Seeding. |
+| `Seed:Clients` | `[]` | The OIDC clients to reconcile — id, display name, `Public`/`Confidential`/`Machine`/`Device` + secret, redirect URIs, scopes, optional `RequirePushedAuthorizationRequests`, `BackchannelLogoutUri` and `ClientUri` (the app's home page, RFC 7591 — rendered pages use it to offer a way back). What a client may *do* is fixed in code; see Seeding. |
 | `Seed:Users` | `[]` | The accounts to ensure — email, roles, optional password. At least one must carry `globaladmin`, or startup throws: seeding guarantees somebody can administrate. |
 | `Oidc:AccessTokenLifetime` | `00:15:00` | The bound on revocation latency (architecture §3.1): a role change or revoked override lives at most this long in issued tokens. |
 | `Oidc:IdentityTokenLifetime` | `00:15:00` | |
@@ -191,7 +191,11 @@ redirect (a bare sign-out lands on `/signed-out`), and an unregistered one is st
 the session intact. Antiforgery is validated by hand rather than by the page filter, because a
 client's legitimate `form_post` logout request is itself a cross-site POST the filter would
 refuse — the validated hint takes the token's place as proof, and a hint-less POST without the
-token just gets the confirmation page again.
+token just gets the confirmation page again. The confirmation's cancel goes where the
+registration vouches it can: the requesting client's seeded `client_uri` when the request names
+one, auth's own root otherwise — the parameter is unauthenticated, but only a registered
+client's registered home page ever renders, so a forged link can do no worse than offer a
+legitimate app.
 
 **Sign-out propagates over the back channel** (OIDC Back-Channel Logout 1.0). Ending a session at
 `/connect/endsession` doesn't just clear auth's cookie: every registered client that declares a
@@ -346,6 +350,14 @@ product, and the eventual design-system pass restyles everything by editing toke
 (parked for the BFF's theme cookie). The pages load one same-origin stylesheet and no script,
 no font files (the system stack), no images (the wordmark is text) — the CSP consequences are
 in Security posture.
+
+**Navigation is never a guess.** A link on an OP page is either part of the flow the user is in
+(sign in ↔ register ↔ the forgot/confirm chains), or a return the client's registration vouches
+for. Terminal pages — error, access denied — offer no navigation at all: the browser's back
+button and the app that sent the user are the honest exits, and a "back to safety" link to
+auth's own root would just relocate the dead end. The end-session confirmation's cancel is the
+one place a destination must exist, and it prefers the requesting client's registered
+`client_uri` (seeded per client), falling back to auth's root only when no client is named.
 
 **Accessibility is part of the contract.** Every input is labelled and carries the right
 `autocomplete` token (`username`, `current-password`, `new-password`, `one-time-code`); an

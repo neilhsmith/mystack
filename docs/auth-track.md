@@ -392,6 +392,11 @@ future design-system pass restyles everything by editing tokens.
   card, text wordmark, one-line footer, per-page-and-state `<title>`s. The shadcn recipes
   (button, input, label, card, alert) are expressed as utility classes in the markup,
   mirroring what `packages/ui` renders.
+- **Navigation is never a guess** (decided reviewing the pass): the wordmark is branding, not
+  a link; pages link only within the credential flow; terminal pages (error, access denied)
+  dead-end honestly; and the end-session cancel — the one mandatory destination — prefers the
+  requesting client's seeded `client_uri` (RFC 7591, stored in OpenIddict's settings bag like
+  the back-channel logout URI), falling back to auth's root.
 - **CSP widened exactly as planned**: `style-src 'self'` on the pages policy only, never
   `'unsafe-inline'`; no `font-src` (system stack — Geist ships only with the JS apps) and no
   `img-src` (the wordmark is text). The pages stay JS-free — no password-reveal toggle;
