@@ -1,14 +1,30 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using MyStack.Auth.Account;
+using MyStack.Auth.Security;
 using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace MyStack.Auth.Data;
 
 internal static class IdentityExtensions
 {
-    public static IServiceCollection AddAuthIdentity(this IServiceCollection services)
+    public static WebApplicationBuilder AddAuthIdentity(this WebApplicationBuilder builder)
     {
+        var instance = builder.Configuration["Instance:Name"] ?? "";
+        if (
+            instance.Length == 0
+            || !instance.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')
+        )
+        {
+            throw new InvalidOperationException(
+                "Instance:Name must be a non-empty token of ASCII letters, digits, '-' or '_'; "
+                    + "it suffixes the cookie names that keep side-by-side instances' sessions "
+                    + "apart (see AuthCookies)."
+            );
+        }
+
+        var services = builder.Services;
+
         services
             .AddIdentity<ApplicationUser, ApplicationRole>(options =>
             {
@@ -58,6 +74,7 @@ internal static class IdentityExtensions
 
         services.ConfigureApplicationCookie(cookie =>
         {
+            cookie.Cookie.Name = AuthCookies.Application(instance);
             cookie.LoginPath = "/signin";
             cookie.AccessDeniedPath = "/access-denied";
 
@@ -69,6 +86,13 @@ internal static class IdentityExtensions
             cookie.SlidingExpiration = true;
         });
 
+        // Renamed explicitly because the default is not instance-scoped: antiforgery hashes the
+        // data-protection application discriminator into its cookie name, and SetApplicationName
+        // above pins that — every instance would mint the identical name and clobber each
+        // other's in-flight form posts. The external/2FA scheme cookies keep their defaults
+        // until something issues them.
+        services.AddAntiforgery(options => options.Cookie.Name = AuthCookies.Antiforgery(instance));
+
         // A password change rotates the security stamp; this is how often other live cookie
         // sessions re-check it. Identity's default half hour is a long ride for a stolen session
         // after the owner rotated the credential.
@@ -76,6 +100,6 @@ internal static class IdentityExtensions
             options.ValidationInterval = TimeSpan.FromMinutes(5)
         );
 
-        return services;
+        return builder;
     }
 }

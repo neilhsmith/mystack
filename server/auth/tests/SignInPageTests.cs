@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using MyStack.Auth.Data;
+using MyStack.Auth.Security;
 using MyStack.Auth.Telemetry;
 using Shouldly;
 
@@ -14,6 +15,9 @@ public sealed class SignInPageTests(AuthAppFixture app)
 {
     // One answer for every failure: anything more specific confirms the account exists.
     private const string GenericError = "The email or password is incorrect.";
+
+    // appsettings.json's shipped Instance:Name — the default every instance-unaware run gets.
+    private static readonly string ApplicationCookie = AuthCookies.Application("mystack");
 
     [Fact]
     public async Task Get_RendersTheForm_UnderThePagesHeaderPolicy()
@@ -117,7 +121,7 @@ public sealed class SignInPageTests(AuthAppFixture app)
         response.Headers.Location!.ToString().ShouldBe("/somewhere-local");
         response
             .Headers.GetValues("Set-Cookie")
-            .ShouldContain(cookie => cookie.StartsWith(".AspNetCore.Identity.Application"));
+            .ShouldContain(cookie => cookie.StartsWith(ApplicationCookie));
 
         signIns
             .GetMeasurementSnapshot()
@@ -265,7 +269,7 @@ public sealed class SignInPageTests(AuthAppFixture app)
         response.StatusCode.ShouldBe(HttpStatusCode.Found);
         return response
             .Headers.GetValues("Set-Cookie")
-            .Where(cookie => cookie.StartsWith(".AspNetCore.Identity.Application"))
+            .Where(cookie => cookie.StartsWith(ApplicationCookie))
             .ShouldHaveSingleItem();
     }
 
@@ -294,7 +298,7 @@ public sealed class SignInPageTests(AuthAppFixture app)
         if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
         {
             cookies.ShouldNotContain(
-                cookie => cookie.StartsWith(".AspNetCore.Identity.Application"),
+                cookie => cookie.StartsWith(ApplicationCookie),
                 "nothing should have signed in"
             );
         }
