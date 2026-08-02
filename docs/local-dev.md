@@ -127,9 +127,10 @@ curl -fsS "http://localhost:$((5100 + (n-1)*1000))/health/ready"
 ```
 
 Register/confirm flows are drivable without a browser: register via POST, read the confirmation
-link from Mailpit's REST API (`GET <mailpit>/api/v1/message/latest`), and the Bruno collection's
-**Sign In (Scripted)** request runs the whole code + PKCE dance from the command line via
-`bru run` if needed.
+link from Mailpit's REST API (`GET <mailpit>/api/v1/message/latest` — delivery is async through
+the outbox, broker and worker, and the endpoint answers a bare 404 while the inbox is empty, so
+poll it), and the Bruno collection's **Sign In (Scripted)** request runs the whole code + PKCE
+dance from the command line via `bru run` if needed.
 
 ## How the glue works
 
