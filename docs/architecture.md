@@ -1013,8 +1013,9 @@ if considered up front and expensive if not.
 
 ### Still open
 
-- **D12 — Deployment mechanism.** Compose + an SSH-based GitHub Action, or Kamal. Doesn't block
-  anything until there's something worth deploying.
+- **D12 — Deployment mechanism.** Compose + an SSH-based GitHub Action, or Kamal. Now has a plan
+  instead of a deferral: [deploy-track.md](deploy-track.md) phase 5 builds the first and spikes
+  the second against the same stack, and the winner gets recorded here.
 - **D15 — Production access to the broker's management UI.** RabbitMQ's UI is the queue operator's
   view and it lives in compose for local development only — a deployed environment restricts it to
   an operator network, never the public internet. Two candidate resolutions, deliberately open:
