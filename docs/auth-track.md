@@ -421,10 +421,10 @@ for it.
 
 ### 16. Deploy prep (D12)
 
-Auth's production readiness, landing when the deployment topology (architecture D12) is decided —
-the review's recommendation is **Kamal 2** (built for exactly the architecture doc's shape:
-multiple containers on one VPS, health-gated zero-downtime swaps, per-destination staging/prod).
-Partly auth code, partly repo-wide; recorded here because most of it blocks *auth* specifically:
+Auth's production readiness — the code half of the deployment story. The full plan —
+parameterization, containerization, hosting, CI/CD, the compose-vs-Kamal decision (architecture
+D12) and the zero-downtime exploration — is [deploy-track.md](deploy-track.md), which consumes
+the bullets below as its phase 2. Recorded here because they block *auth* specifically:
 
 - **OpenIddict key material from configuration** — today only dev certs and test keys exist, and
   production refuses to boot. Needs code (a config-loaded signing + encryption certificate path),

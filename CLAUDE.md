@@ -48,7 +48,8 @@ shadcn recipes as utility classes across all thirteen pages, light + dark from t
 JavaScript, the committed `wwwroot/app.css` compiled by `pnpm build:css` and freshness-checked
 by the gate, `style-src 'self'` on the pages policy, and the error-summary/`aria-invalid`
 accessibility bar ([docs/auth.md](docs/auth.md) § The rendered pages).
-[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in.
+[docs/auth-track.md](docs/auth-track.md) is the order the rest lands in;
+[docs/deploy-track.md](docs/deploy-track.md) is the hosting and deployment plan.
 Keep architecture §7's inventory ticked as things land; it is the honest answer to "what is
 built?".
 
