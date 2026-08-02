@@ -80,11 +80,12 @@ duplicated. Permission strings stay out of Contracts: auth handles them as opaqu
 dotnet build server/MyStack.slnx     # build
 dotnet test server/MyStack.slnx      # test — needs Docker; the suites run real containers
 dotnet csharpier format .            # format; CI runs `csharpier check .`
-dotnet run --project server/auth/src # auth on :5100, migrating + seeding compose Postgres on the way up
-dotnet run --project server/worker/src # worker on :5200, consuming its queue
-dotnet run --project server/auth/src --launch-profile otel # ... also exporting telemetry
-docker compose up -d                 # postgres + rabbitmq (mgmt UI :15672) + mailpit
-docker compose --profile otel up -d  # ... plus the telemetry dashboard (:18888)
+scripts/dev up                       # postgres + rabbitmq (mgmt UI :15672) + mailpit, from .env
+scripts/dev auth                     # auth on :5100 (AUTH_PORT), migrating + seeding on the way up
+scripts/dev worker                   # worker on :5200 (WORKER_PORT), consuming its queue
+scripts/dev auth --otel              # ... exporting telemetry (pair with `scripts/dev up --otel`)
+scripts/dev init 2                   # .env for a second isolated stack — docs/local-dev.md
+scripts/dev urls                     # where everything in this instance lives
 
 dotnet ef migrations add <Name> --project server/auth/src --output-dir Data/Migrations
 
@@ -93,6 +94,11 @@ pnpm format                          # prettier over apps/ + packages/; CI runs 
 pnpm typecheck                       # tsc --noEmit in every package
 pnpm build:css                       # regenerate auth's committed wwwroot/app.css; CI diffs it
 ```
+
+In a worktree with its own `.env`, always run the apps through `scripts/dev` — bare `dotnet run`
+reads only `appsettings.Development.json` and silently attaches to the *default* instance's
+Postgres and worker queue. [docs/local-dev.md](docs/local-dev.md) is the port map and the
+multi-instance story; `dotnet ef` targets an instance via `scripts/dev exec dotnet ef …`.
 
 ## Conventions
 

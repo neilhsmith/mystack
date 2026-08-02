@@ -46,22 +46,26 @@ tokens every future frontend and auth's rendered pages style from.
 Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download), Docker with Compose.
 
 ```bash
-cp .env.example .env                  # optional — the defaults work untouched
-docker compose up -d                  # postgres + rabbitmq + mailpit
+scripts/dev up                        # postgres + rabbitmq + mailpit
 dotnet tool restore                   # csharpier, dotnet-ef
-dotnet run --project server/auth/src  # auth on :5100, migrating + seeding on the way up
+scripts/dev auth                      # auth on :5100, migrating + seeding on the way up
+scripts/dev worker                    # worker on :5200, delivering the emails
 ```
 
-| Service                                 | Port                    | For                                          |
-| --------------------------------------- | ----------------------- | -------------------------------------------- |
-| Postgres                                | 5432                    | every app's database                         |
-| [RabbitMQ](http://localhost:15672)      | 5672 (AMQP), 15672 (UI) | the message broker; UI login guest/guest     |
-| [Mailpit](http://localhost:8025)        | 8025 (UI), 1025 (SMTP)  | the local inbox — email is genuinely sent    |
-| [Telemetry dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `--profile otel` |
+| Service                                       | Port                     | For                                        |
+| --------------------------------------------- | ------------------------ | ------------------------------------------ |
+| auth                                          | 5100                     | the OpenID Connect server — `/signin`      |
+| worker                                        | 5200                     | the queue consumer; no UI                  |
+| Postgres                                      | 5432                     | every app's database                       |
+| [RabbitMQ](http://localhost:15672)            | 5672 (AMQP), 15672 (UI)  | the message broker; UI login guest/guest   |
+| [Mailpit](http://localhost:8025)              | 8025 (UI), 1025 (SMTP)   | the local inbox — email is genuinely sent  |
+| [Telemetry dashboard](http://localhost:18888) | 18888 (UI), 18889 (OTLP) | traces, metrics and logs; `up --otel`      |
 
-The telemetry dashboard is opt-in: `docker compose --profile otel up -d`, then run the app with
-`--launch-profile otel` so it has somewhere to export to. It's the Aspire dashboard image today,
-but the apps only speak OTLP, so any collector can take its place.
+Every port is a `.env` knob, and several complete stacks run side by side (worktrees, agents) —
+[docs/local-dev.md](docs/local-dev.md) is the full map and the multi-instance recipe. The
+telemetry dashboard is opt-in: `scripts/dev up --otel`, then `scripts/dev auth --otel` so the app
+has somewhere to export to. It's the Aspire dashboard image today, but the apps only speak OTLP,
+so any collector can take its place.
 
 ## Working on it
 

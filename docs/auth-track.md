@@ -515,16 +515,8 @@ seed config so neither can reach a deployed environment.
 
 ## Local stack
 
-| Service | Port | For |
-| --- | --- | --- |
-| Postgres | 5432 | auth's database, and Wolverine's `wolverine_*` envelope schemas |
-| RabbitMQ | 5672 (AMQP), 15672 (management UI) | the message broker; the UI shows queues and the dead-letter queue |
-| Mailpit | 8025 (UI), 1025 (SMTP) | the inbox — auth genuinely sends here |
-| Aspire Dashboard | 18888 (UI), 18889 (OTLP) | traces, metrics and structured logs in one place |
-
-The Aspire Dashboard container requires a login token by default; set
-`DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true` for local use only. It sits behind an opt-in
-compose profile rather than running always-on.
+Superseded: [local-dev.md](local-dev.md) is the canonical port/URL map — it grew the app rows and
+the multi-instance story this section's table predated.
 
 ## Open items to resolve along the way
 

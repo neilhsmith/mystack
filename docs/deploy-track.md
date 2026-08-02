@@ -37,29 +37,41 @@ Decided up front (2026-08-02), so the phases don't relitigate them:
 **Goal:** two (or five) complete, isolated instances of the stack — infrastructure containers and
 apps — running side by side on one machine, each configured entirely by environment.
 
-Most of this exists. `compose.yaml` already namespaces containers, network and volumes by
-`COMPOSE_PROJECT_NAME` and exposes every host port as an env-overridable variable; and every URL
+Most of this existed. `compose.yaml` already namespaced containers, network and volumes by
+`COMPOSE_PROJECT_NAME` and exposed every host port as an env-overridable variable; and every URL
 the apps consume — connection strings, broker, SMTP host, `Account:PublicBaseUrl`, seeded client
 redirect URIs, the OTLP endpoint — is .NET configuration, which environment variables override by
-construction (`Account__PublicBaseUrl`, `Seed__Clients__0__RedirectUris__0`, …). Nothing
-URL-shaped is compiled in; the survey found `localhost` only in the two
-`appsettings.Development.json` defaults, `launchSettings.json`, and tests.
+construction. Nothing URL-shaped is compiled in. The one-knob story landed as two PRs
+(2026-08-02), with these decisions:
 
-What's missing is the one-knob story:
+- **The `.env` glue is `scripts/dev`**, a single bash wrapper: `init <n>` writes the
+  per-instance `.env`, `up`/`down` drive compose off it, `auth`/`worker` source it and export
+  the derived .NET configuration (`--urls` for the listen port, connection strings, broker,
+  `Account__PublicBaseUrl`, `Email__Port`, the seeded `web-bff`/`bruno` client URIs by index),
+  `exec` runs arbitrary tooling under the same environment, `urls` prints the instance's map.
+  The rejected alternatives: a Development-only dotenv loader (dev-only code in a credentials
+  host, and the port→config fan-out has to live somewhere anyway — better one auditable script),
+  and documented `env $(cat .env)` (derives nothing, maximally error-prone). One subtlety worth
+  keeping: the wrapper never uses the `otel` *launch profile* — a profile's env vars override
+  the process environment, so its fixed `:18889` endpoint would beat the derived one.
+- **The cookie-jar collision is fixed by per-instance cookie names**: `Instance:Name`
+  (set from `COMPOSE_PROJECT_NAME`) suffixes the application and antiforgery cookies. Sharper
+  than expected: each instance keeps its own data-protection ring, so identically-named cookies
+  don't merely collide — each instance evicts the other's session; and the antiforgery rename is
+  mandatory because its default name hashes the *pinned* application discriminator, identical
+  across all instances and worktrees. Per-instance hostnames (`auth2.localhost`) were rejected
+  as the default — `*.localhost` resolution is resolver-dependent for non-browser tooling — but
+  stay available purely through config, since nothing hardcodes `localhost`.
+- **The seeds and Bruno follow the instance.** `scripts/dev` overrides the seeded client URIs
+  from `WEB_PORT`/`BRUNO_CALLBACK_PORT` (client order in `appsettings.Development.json` is
+  load-bearing and commented as such); the Bruno environment for instance *n* is a duplicate of
+  **Local** with the three URLs `scripts/dev urls` prints.
+- **The port scheme:** instance *n* = defaults + (n−1)×1000, `n ≤ 7` (at +7000 the offsets start
+  landing on other instances' defaults). Tests never touch any of this — Testcontainers on
+  random ports — and the conformance harness stays deliberately pinned to the default instance.
 
-- **A per-instance `.env` file both halves read.** Compose reads `.env` natively; `dotnet run`
-  does not. Decide the glue — a small `scripts/` wrapper that exports it, a Development-only
-  dotenv loader, or documented `env $(cat .env)` invocation — and use it for the app ports too
-  (`ASPNETCORE_URLS` / `--urls` already beat `launchSettings.json`'s defaults).
-- **The cookie-jar collision.** Browsers scope cookies to host, not port, so two auth instances
-  on `localhost:5100` and `localhost:5101` overwrite each other's session cookies. Two candidate
-  fixes, decided in the phase: per-instance cookie names from configuration, or per-instance
-  hostnames (`auth1.localhost`, `auth2.localhost` — `*.localhost` resolves to loopback).
-- **The dev-client seeds follow the instance.** The seeded redirect/client URIs and `bruno`'s
-  environment must track the chosen ports, not assume `3000`/`5100`/`8090`.
-
-**Deliverable:** a documented recipe, proven by running `mystack` and `mystack2` concurrently and
-completing the sign-in flow in both.
+**Deliverable:** [local-dev.md](local-dev.md) — the canonical port map and the recipe — proven by
+running `mystack` and `mystack2` concurrently and completing the sign-in flow in both.
 
 ## Phase 2 — production trust in code
 
