@@ -113,6 +113,7 @@ mystack/
 ├─ packages/
 │  ├─ api-client/                   # generated from server/api's OpenAPI
 │  ├─ bff/                          # shared BFF kit — extracted when apps/admin arrives
+│  ├─ ui/                           # shadcn (Base UI) components + the shared theme tokens
 │  ├─ tsconfig/
 │  └─ eslint-config/
 ├─ docs/
@@ -833,8 +834,8 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 ### Foundation
 
 - [x] **Repo skeleton** — layout, README, this doc, `CLAUDE.md`, `.gitignore`, `.editorconfig`, licence
-- [x] **Toolchain** — `Directory.*.props`, `.slnx`, CSharpier. *The pnpm workspace and the JS
-      linters wait until there is JavaScript.*
+- [x] **Toolchain** — `Directory.*.props`, `.slnx`, CSharpier; the pnpm workspace, Prettier and
+      the typecheck half of the gate (landed with `packages/ui`). *ESLint waits for the first app.*
 - [x] **CI + branch protection** — the `gate` workflow, green against an empty repo
 - [x] **Local infrastructure** — `compose.yaml` (Postgres, Mailpit, opt-in Aspire dashboard),
       `.env.example`. *No dev scripts: D1 settles orchestration as "nothing", so the handful of
@@ -902,6 +903,9 @@ Mark items done as they land, so this stays the honest answer to "what exists?".
 
 ### packages/
 
+- [x] **`ui`** — the shadcn (Base UI) components imported wholesale, minting the shared
+      `light-dark()` token stylesheet every surface themes from; Storybook and component tests
+      deliberately wait for the first React consumer
 - [ ] **`api-client`** — codegen from the OpenAPI spec
 - [ ] **`bff`** — the session/refresh/proxy kit extracted out of `apps/web` for a second consumer
 

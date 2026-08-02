@@ -1,0 +1,7 @@
+# Prettier owns the JS ecosystem only: apps/, packages/ and the root manifests.
+# C# is CSharpier's; docs, bruno and conformance keep their hand-formatted shapes.
+/*
+!/apps
+!/packages
+!/package.json
+!/pnpm-workspace.yaml
