@@ -5,12 +5,12 @@
 # environment: mail silently going nowhere while every send reports success is worse than an
 # outage. A deployed stack gets its own compose file if it ever uses one (D12 is still open).
 #
-#   docker compose up -d                  postgres + mailpit
-#   docker compose --profile otel up -d   also the telemetry dashboard
+#   scripts/dev up            postgres + rabbitmq + mailpit (plain `docker compose up -d` works
+#   scripts/dev up --otel     also the telemetry dashboard    too and assumes the defaults)
 #
-# Host ports are env-overridable so a second isolated stack can run alongside this one:
-#   COMPOSE_PROJECT_NAME=mystack2 POSTGRES_PORT=5532 docker compose up -d
-# (containers, network and volumes are namespaced per project; only host ports clash.)
+# Host ports are env-overridable so isolated stacks can run side by side: `scripts/dev init <n>`
+# writes the per-instance .env, and docs/local-dev.md is the whole story. Containers, network
+# and volumes are namespaced per COMPOSE_PROJECT_NAME; only host ports can clash.
 name: mystack
 
 services:
@@ -33,8 +33,8 @@ services:
       retries: 10
 
   # The message broker MyStack.Messaging speaks to (docs/architecture.md §3.3). The management
-  # UI at http://localhost:15672 (guest/guest) is the queue operator's view: depths, rates, and
-  # the wolverine-dead-letter-queue with its parked messages.
+  # UI (default http://localhost:15672, guest/guest) is the queue operator's view: depths, rates,
+  # and the wolverine-dead-letter-queue with its parked messages.
   rabbitmq:
     image: rabbitmq:4-management-alpine
     ports:
@@ -53,7 +53,7 @@ services:
       retries: 10
 
   # The inbox every environment's email actually lands in locally — there is no dev-only sender.
-  # UI at http://localhost:8025; the e2e suite reads the same messages over its REST API.
+  # UI defaults to http://localhost:8025; the e2e suite reads the same messages over its REST API.
   mailpit:
     image: axllent/mailpit:v1.30
     ports:

@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# One knob per stack instance (docs/local-dev.md). Compose reads .env natively; `dotnet run`
+# does not — this wrapper is the agreed glue (docs/deploy-track.md phase 1): it derives the
+# .NET-side configuration (URLs, connection strings, seeded client URIs) from the same .env
+# that parameterizes compose, so both halves of an instance always agree.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(dirname "$here")"
+env_file="$root/.env"
+
+usage() {
+  cat <<'EOF'
+usage: scripts/dev [--env-file <path>] <command> [options]
+
+commands:
+  init [n] [--force]     write .env for instance n (1..7; 1 = the plain defaults). Ports are
+                         default + (n-1)*1000; refuses to overwrite an existing .env without
+                         --force.
+  up [--otel]            docker compose up -d --wait (--otel adds the telemetry dashboard)
+  down [-v]              docker compose down, all profiles (-v also removes the data volume)
+  auth [--otel] [args]   run server/auth on AUTH_PORT with the instance's derived config
+  worker [--otel] [args] run server/worker on WORKER_PORT with the instance's derived config
+  exec <cmd...>          run any command under the derived environment (dotnet ef, psql, ...)
+  urls                   print where everything in this instance lives
+
+Without an .env every value falls back to the documented defaults, so `scripts/dev auth` on a
+fresh checkout is exactly the single-stack story.
+EOF
+}
+
+die() {
+  echo "scripts/dev: $1" >&2
+  exit 1
+}
+
+# The one place the default ports are spelled in executable form; docs/local-dev.md is the
+# human-facing copy of the same table.
+load_env() {
+  if [[ -f "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$env_file"
+    set +a
+  fi
+  : "${COMPOSE_PROJECT_NAME:=mystack}"
+  : "${POSTGRES_USER:=mystack}"
+  : "${POSTGRES_PASSWORD:=mystack}"
+  : "${POSTGRES_DB:=mystack}"
+  : "${POSTGRES_PORT:=5432}"
+  : "${RABBITMQ_PORT:=5672}"
+  : "${RABBITMQ_UI_PORT:=15672}"
+  : "${MAILPIT_SMTP_PORT:=1025}"
+  : "${MAILPIT_UI_PORT:=8025}"
+  : "${OTEL_DASHBOARD_UI_PORT:=18888}"
+  : "${OTEL_DASHBOARD_OTLP_PORT:=18889}"
+  : "${AUTH_PORT:=5100}"
+  : "${WORKER_PORT:=5200}"
+  : "${WEB_PORT:=3000}"
+  : "${BRUNO_CALLBACK_PORT:=8090}"
+}
+
+# Everything the .NET half needs to land on this instance instead of the defaults. Exported as
+# environment configuration so it beats appsettings.Development.json but loses to nothing the
+# caller passes explicitly.
+derive() {
+  local otel="$1"
+
+  # `exec` runs outside `dotnet run`, where nothing else picks the environment — and the
+  # connection strings only exist in appsettings.Development.json.
+  export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Development}"
+  export DOTNET_ENVIRONMENT="${DOTNET_ENVIRONMENT:-$ASPNETCORE_ENVIRONMENT}"
+
+  export Instance__Name="$COMPOSE_PROJECT_NAME"
+  export ConnectionStrings__AuthDb="Host=localhost;Port=${POSTGRES_PORT};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+  export ConnectionStrings__WorkerDb="$ConnectionStrings__AuthDb"
+  export ConnectionStrings__MessageBroker="amqp://localhost:${RABBITMQ_PORT}"
+  export Account__PublicBaseUrl="http://localhost:${AUTH_PORT}"
+  export Email__Host="localhost"
+  export Email__Port="$MAILPIT_SMTP_PORT"
+
+  # Client order in appsettings.Development.json is load-bearing: 0 = web-bff, 1 = bruno.
+  export Seed__Clients__0__ClientUri="http://localhost:${WEB_PORT}/"
+  export Seed__Clients__0__RedirectUris__0="http://localhost:${WEB_PORT}/api/auth/callback"
+  export Seed__Clients__0__PostLogoutRedirectUris__0="http://localhost:${WEB_PORT}/"
+  export Seed__Clients__1__RedirectUris__0="http://localhost:${BRUNO_CALLBACK_PORT}/callback"
+  export Seed__Clients__1__PostLogoutRedirectUris__0="http://localhost:${BRUNO_CALLBACK_PORT}/callback"
+
+  if [[ "$otel" == true ]]; then
+    export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${OTEL_DASHBOARD_OTLP_PORT}"
+    export OTEL_METRIC_EXPORT_INTERVAL=5000
+    export OTEL_RESOURCE_ATTRIBUTES="mystack.instance=${COMPOSE_PROJECT_NAME}"
+  fi
+}
+
+compose() {
+  local args=()
+  [[ -f "$env_file" ]] && args+=(--env-file "$env_file")
+  (cd "$root" && docker compose "${args[@]}" "$@")
+}
+
+# Never `--launch-profile otel` here: a launch profile's environmentVariables override the
+# process environment, so the profile's fixed :18889 endpoint would beat the derived one. The
+# default `http` profile sets only ASPNETCORE_ENVIRONMENT and stays.
+run_app() {
+  local app="$1" otel=false port
+  shift
+  if [[ "${1:-}" == "--otel" ]]; then
+    otel=true
+    shift
+  fi
+  load_env
+  case "$app" in
+    auth) port="$AUTH_PORT" ;;
+    worker) port="$WORKER_PORT" ;;
+  esac
+  derive "$otel"
+  exec dotnet run --project "$root/server/$app/src" -- --urls "http://localhost:$port" "$@"
+}
+
+cmd_init() {
+  local n=1 force=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=true ;;
+      *) n="$1" ;;
+    esac
+    shift
+  done
+  [[ "$n" =~ ^[1-7]$ ]] || die "instance number must be 1..7 — at +7000 the offset ports start colliding with other instances' defaults (1025+7000 = 8025)"
+  [[ -e "$env_file" && "$force" == false ]] && die "$env_file exists; pass --force to overwrite it"
+
+  local offset=$(((n - 1) * 1000))
+  local name="mystack"
+  [[ "$n" -gt 1 ]] && name="mystack$n"
+
+  local ports=(
+    "POSTGRES_PORT=$((5432 + offset))"
+    "RABBITMQ_PORT=$((5672 + offset))"
+    "RABBITMQ_UI_PORT=$((15672 + offset))"
+    "MAILPIT_SMTP_PORT=$((1025 + offset))"
+    "MAILPIT_UI_PORT=$((8025 + offset))"
+    "OTEL_DASHBOARD_UI_PORT=$((18888 + offset))"
+    "OTEL_DASHBOARD_OTLP_PORT=$((18889 + offset))"
+    "AUTH_PORT=$((5100 + offset))"
+    "WORKER_PORT=$((5200 + offset))"
+    "WEB_PORT=$((3000 + offset))"
+    "BRUNO_CALLBACK_PORT=$((8090 + offset))"
+  )
+
+  {
+    echo "# Instance $n, written by scripts/dev init. Plain NAME=VALUE only: docker compose and"
+    echo "# scripts/dev both read this file, and barewords are the dialect they agree on."
+    echo "COMPOSE_PROJECT_NAME=$name"
+    echo "POSTGRES_USER=mystack"
+    echo "POSTGRES_PASSWORD=mystack"
+    echo "POSTGRES_DB=mystack"
+    printf '%s\n' "${ports[@]}"
+  } >"$env_file"
+
+  echo "wrote $env_file (instance $n: $name, ports +$offset)"
+
+  if command -v ss >/dev/null 2>&1; then
+    local entry port
+    for entry in "${ports[@]}"; do
+      port="${entry#*=}"
+      if [[ -n "$(ss -ltnH "sport = :$port" 2>/dev/null)" ]]; then
+        echo "warning: ${entry%%=*} $port is already bound on this machine" >&2
+      fi
+    done
+  fi
+  if [[ $((3000 + offset)) -eq 6000 ]]; then
+    echo "warning: WEB_PORT 6000 is on the browsers' unsafe-port list (ERR_UNSAFE_PORT); edit WEB_PORT in $env_file before relying on the web app in this instance" >&2
+  fi
+}
+
+cmd_up() {
+  local args=(up -d --wait)
+  [[ "${1:-}" == "--otel" ]] && args=(--profile otel "${args[@]}")
+  load_env
+  compose "${args[@]}"
+}
+
+cmd_down() {
+  local args=(--profile otel down)
+  [[ "${1:-}" == "-v" ]] && args+=(--volumes)
+  load_env
+  compose "${args[@]}"
+}
+
+cmd_urls() {
+  load_env
+  local source="defaults (no $env_file)"
+  [[ -f "$env_file" ]] && source="$env_file"
+  cat <<EOF
+instance    $COMPOSE_PROJECT_NAME  —  $source
+
+web app     http://localhost:${WEB_PORT}            (future apps/web; already the seeded web-bff client)
+auth        http://localhost:${AUTH_PORT}            sign-in /signin, discovery /.well-known/openid-configuration
+worker      http://localhost:${WORKER_PORT}            health /health/live
+postgres    localhost:${POSTGRES_PORT}                 ${POSTGRES_USER}/${POSTGRES_PASSWORD}, database ${POSTGRES_DB}
+rabbitmq    amqp://localhost:${RABBITMQ_PORT}       management UI http://localhost:${RABBITMQ_UI_PORT} (guest/guest)
+mailpit     smtp localhost:${MAILPIT_SMTP_PORT}            inbox UI http://localhost:${MAILPIT_UI_PORT}
+telemetry   http://localhost:${OTEL_DASHBOARD_UI_PORT}           OTLP localhost:${OTEL_DASHBOARD_OTLP_PORT} (scripts/dev up --otel)
+
+bruno       duplicate the Local environment and set:
+            auth_url     http://localhost:${AUTH_PORT}
+            callback_url http://localhost:${BRUNO_CALLBACK_PORT}/callback
+            mailpit_url  http://localhost:${MAILPIT_UI_PORT}
+EOF
+}
+
+if [[ "${1:-}" == "--env-file" ]]; then
+  [[ $# -ge 2 ]] || die "--env-file needs a path"
+  env_file="$2"
+  shift 2
+fi
+
+case "${1:-}" in
+  init)
+    shift
+    cmd_init "$@"
+    ;;
+  up)
+    shift
+    cmd_up "$@"
+    ;;
+  down)
+    shift
+    cmd_down "$@"
+    ;;
+  auth)
+    shift
+    run_app auth "$@"
+    ;;
+  worker)
+    shift
+    run_app worker "$@"
+    ;;
+  exec)
+    shift
+    [[ $# -ge 1 ]] || die "exec needs a command"
+    load_env
+    derive false
+    exec "$@"
+    ;;
+  urls)
+    cmd_urls
+    ;;
+  "" | -h | --help | help)
+    usage
+    ;;
+  *)
+    die "unknown command '${1}' (try scripts/dev --help)"
+    ;;
+esac
