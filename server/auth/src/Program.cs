@@ -24,7 +24,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddAuthSecurityHeaders();
 builder.AddAuthRateLimiter();
 builder.AddAuthDatabase();
-builder.Services.AddAuthIdentity();
+builder.AddAuthIdentity();
 builder.AddAuthOpenIddict();
 builder.AddMessaging(
     "auth",
